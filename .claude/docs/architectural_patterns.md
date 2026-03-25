@@ -28,3 +28,11 @@ Admin is currently the primary UI for data management. The `list_display` and `l
 
 ## URL Routing: Two-Level Include
 Root `urls.py` includes `binderbase.urls` at `''`, and `binderbase/urls.py` mounts the Ninja API at `api/`. Adding a new app: include its URLs in `binder_backend/urls.py`, then define sub-routing within that app's own `urls.py`.
+
+## Frontend: Typed API Client Layer
+`binder_frontend/src/api/client.ts` is the single integration point between React and Django Ninja. It exports typed async functions (`getProteins`, `getProtein`) that wrap `fetch` and throw on non-OK responses. Pages never call `fetch` directly.
+
+`binder_frontend/src/types/index.ts` mirrors the Ninja response schemas as TypeScript interfaces (`Protein`, `ProteinDetail`, `BinderRun`, `Binder`). When adding or changing API fields, update both the Ninja schema in `api.py` and the corresponding TS interface.
+
+## Frontend: Vite Dev Proxy
+`binder_frontend/vite.config.ts` proxies all `/api/*` requests to `http://localhost:8000` during development. This means the frontend and backend can run on different ports locally without any CORS configuration on Django. For production deployment, serve both under the same origin or add `django-cors-headers`.
