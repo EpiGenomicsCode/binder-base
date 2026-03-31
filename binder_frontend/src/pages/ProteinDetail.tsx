@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getProtein } from "../api/client";
-import type { BinderRun, ProteinDetail } from "../types";
+import type { Binder, BinderRun, ProteinDetail } from "../types";
+import CifViewer from "../components/CifViewer";
 
 function statusClass(status: string | null): string {
   if (!status) return "s-unknown";
@@ -166,7 +167,50 @@ export default function ProteinDetailPage() {
   );
 }
 
+interface BinderModalProps {
+  binder: Binder;
+  runCifPath: string | null;
+  onClose: () => void;
+}
+
+function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const hasCifs = runCifPath || binder.cif_path;
+
+  return (
+    <div className="cif-modal-overlay" onClick={onClose}>
+      <div className="cif-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="cif-modal-header">
+          <span>Binder #{binder.id}</span>
+          <button className="cif-modal-close" onClick={onClose}>✕</button>
+        </div>
+        {hasCifs ? (
+          <div className="cif-modal-viewers">
+            {runCifPath && (
+              <CifViewer cifPath={runCifPath} label="Target protein" />
+            )}
+            {binder.cif_path && (
+              <CifViewer cifPath={binder.cif_path} label="Binder" />
+            )}
+          </div>
+        ) : (
+          <p className="cif-modal-empty">No CIF files available for this binder.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function RunCard({ run }: { run: BinderRun }) {
+  const [selectedBinder, setSelectedBinder] = useState<Binder | null>(null);
+
   return (
     <div className="run-card">
       <div className="run-card-header">
@@ -203,7 +247,12 @@ function RunCard({ run }: { run: BinderRun }) {
           </thead>
           <tbody>
             {run.binders.map((b) => (
-              <tr key={b.id}>
+              <tr
+                key={b.id}
+                className="binder-row"
+                onClick={() => setSelectedBinder(b)}
+                title="Click to view structures"
+              >
                 <td>{b.id}</td>
                 <td>{b.binder_length ?? "—"}</td>
                 <td>
@@ -217,6 +266,14 @@ function RunCard({ run }: { run: BinderRun }) {
             ))}
           </tbody>
         </table>
+      )}
+
+      {selectedBinder && (
+        <BinderModal
+          binder={selectedBinder}
+          runCifPath={run.cif_path}
+          onClose={() => setSelectedBinder(null)}
+        />
       )}
     </div>
   );

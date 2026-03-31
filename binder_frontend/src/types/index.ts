@@ -13,6 +13,7 @@ export interface Binder {
   binder_length: number | null;
   status: string | null;
   failure_reason: string | null;
+  cif_path: string | null;
 }
 
 export interface BinderRun {
@@ -22,6 +23,7 @@ export interface BinderRun {
   run_datetime: string;
   hardware: string | null;
   notes: string | null;
+  cif_path: string | null;
   binders: Binder[];
 }
 
