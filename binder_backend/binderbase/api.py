@@ -21,6 +21,14 @@ class BinderSchema(Schema):
     binder_length: int | None
     status: str | None
     failure_reason: str | None
+    final_rank: int | None
+    quality_score: float | None
+    design_to_target_iptm: float | None
+    cif_path: str | None
+
+    @staticmethod
+    def resolve_cif_path(obj):
+        return obj.cif_path.name if obj.cif_path else None
 
 
 class BinderRunSchema(Schema):
@@ -30,7 +38,18 @@ class BinderRunSchema(Schema):
     run_datetime: datetime
     hardware: str | None
     notes: str | None
+    run_dir: str | None
+    cif_path: str | None
+    user: str | None
     binders: list[BinderSchema]
+
+    @staticmethod
+    def resolve_cif_path(obj):
+        return obj.cif_path.name if obj.cif_path else None
+
+    @staticmethod
+    def resolve_user(obj):
+        return obj.user.username if obj.user else None
 
     @staticmethod
     def resolve_binders(obj):

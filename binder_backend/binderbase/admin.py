@@ -13,7 +13,8 @@ class BinderInline(admin.TabularInline):
 
 @admin.register(BinderRun)
 class BinderRunAdmin(admin.ModelAdmin):
-    list_display = ('protein', 'algorithm_version', 'run_datetime', 'hardware', 'description')
-    list_filter = ('protein', 'algorithm_version', 'hardware')
+    list_display = ('protein', 'algorithm_version', 'run_datetime', 'hardware', 'description', 'run_dir', 'user')
+    list_filter = ('protein', 'algorithm_version', 'hardware', 'user')
 
     inlines = [BinderInline, ]
+

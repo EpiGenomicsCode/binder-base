@@ -74,3 +74,178 @@ dd { margin: 0; word-break: break-word; }
 /* Status messages */
 .status { color: #555; font-style: italic; }
 .status.error { color: #b91c1c; }
+.back-link { margin-bottom: 0.5rem; }
+
+/* ── Protein Detail: Header ── */
+.pd-header {
+  display: flex;
+  gap: 0;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  margin-bottom: 1.25rem;
+}
+
+.pd-header-left {
+  flex: 1;
+  padding: 1.5rem 2rem;
+  border-right: 1px solid #ebebeb;
+}
+
+.pd-header-left h1 { font-size: 1.25rem; margin-bottom: 1rem; }
+
+.pd-meta { grid-template-columns: max-content 1fr; }
+
+.pd-header-right {
+  width: 280px;
+  flex-shrink: 0;
+  padding: 1.5rem 1.75rem;
+  background: #fafafa;
+}
+
+.pd-stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+.pd-stat-label { font-size: 0.88rem; color: #555; }
+.pd-stat-badge {
+  background: #e8f0fe;
+  color: #1d4ed8;
+  font-weight: 600;
+  font-size: 0.88rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 99px;
+}
+
+.pd-dist { margin-top: 1.25rem; }
+.pd-dist-label { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #888; margin: 0 0 0.5rem; }
+.pd-dist-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; font-size: 0.88rem; }
+.pd-dist-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+.pd-dist-name { flex: 1; color: #333; }
+.pd-dist-pct { font-weight: 600; color: #1a1a1a; }
+
+/* ── Sequence section ── */
+.pd-seq-section {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  margin-bottom: 1.25rem;
+  overflow: hidden;
+}
+
+.pd-seq-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid #ebebeb;
+  background: #fafafa;
+}
+
+.pd-chain-label { font-size: 0.9rem; font-weight: 600; color: #333; }
+
+.pd-copy-btn {
+  font-size: 0.82rem;
+  padding: 0.3rem 0.85rem;
+  border: 1px solid #2563eb;
+  border-radius: 4px;
+  background: #fff;
+  color: #2563eb;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.pd-copy-btn:hover { background: #eff6ff; }
+
+.pd-seq-block {
+  padding: 1rem 1.25rem;
+  font-family: monospace;
+  font-size: 0.82rem;
+  line-height: 1.7;
+  word-break: break-all;
+  color: #333;
+  letter-spacing: 0.03em;
+}
+
+/* ── Runs + Sidebar layout ── */
+.pd-body {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+
+.pd-runs { flex: 1; min-width: 0; }
+.pd-runs h2 { margin-top: 0; }
+
+.pd-sidebar { width: 240px; flex-shrink: 0; position: sticky; top: 1.5rem; }
+
+.pd-panel {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  overflow: hidden;
+}
+
+.pd-panel-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #555;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #ebebeb;
+  background: #fafafa;
+}
+
+.pd-legend-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid #f0f0f0;
+}
+.pd-legend-item:last-child { border-bottom: none; }
+
+.pd-legend-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; margin-top: 3px; }
+.pd-legend-name { font-size: 0.85rem; font-weight: 600; color: #1a1a1a; }
+.pd-legend-desc { font-size: 0.78rem; color: #888; margin-top: 1px; }
+
+/* ── Run card ── */
+.run-card {
+  background: #fff;
+  border-radius: 6px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.run-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.75rem;
+}
+.run-title { font-weight: 600; font-size: 1rem; }
+.run-algo { color: #555; font-weight: 400; }
+.run-date { font-size: 0.82rem; color: #888; }
+
+.run-meta { margin-bottom: 0.75rem; }
+
+/* ── Status colors ── */
+.s-success { background: #22c55e; }
+.s-failed  { background: #ef4444; }
+.s-unknown { background: #9ca3af; }
+
+.status-pill {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.15rem 0.55rem;
+  border-radius: 99px;
+  color: #fff;
+}
+.status-pill.s-success { background: #22c55e; }
+.status-pill.s-failed  { background: #ef4444; }
+.status-pill.s-unknown { background: #9ca3af; }

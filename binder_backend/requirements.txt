@@ -3,3 +3,5 @@ gunicorn
 django-ninja
 django-environ
 django-cleanup
+django-extensions
+graphviz
