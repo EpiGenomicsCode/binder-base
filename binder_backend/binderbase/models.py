@@ -31,6 +31,9 @@ class BinderRun(models.Model):
     def __str__(self):
         return self.protein.uniprot_id + " - " + self.algorithm_version + " - " + self.run_datetime.strftime("%Y-%m-%d %H:%M:%S")
     
+    class Meta:
+        ordering = ["-run_datetime", ]
+
 
 class Binder(models.Model):
     run = models.ForeignKey(BinderRun, on_delete=models.CASCADE)
@@ -45,3 +48,6 @@ class Binder(models.Model):
     cif_path = models.FileField(null=True, blank=True, max_length=1024, verbose_name="CIF path")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["run", "final_rank", ]   

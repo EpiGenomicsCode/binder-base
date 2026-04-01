@@ -7,14 +7,15 @@ class ProteinAdmin(admin.ModelAdmin):
     list_filter = ('organism',)
 
 
-class BinderInline(admin.TabularInline):
-    model = Binder   
-
-
 @admin.register(BinderRun)
 class BinderRunAdmin(admin.ModelAdmin):
     list_display = ('protein', 'algorithm_version', 'run_datetime', 'hardware', 'description', 'run_dir', 'user')
     list_filter = ('protein', 'algorithm_version', 'hardware', 'user')
 
-    inlines = [BinderInline, ]
+
+@admin.register(Binder)
+class BinderAdmin(admin.ModelAdmin):
+    list_display = ('run', 'binder_length', 'final_rank', 'quality_score', 'design_to_target_iptm', 'status')
+    list_filter = ('run',)
+
 

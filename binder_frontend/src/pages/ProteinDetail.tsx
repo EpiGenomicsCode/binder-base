@@ -25,17 +25,40 @@ function statusDistribution(runs: BinderRun[]) {
   return { counts, total };
 }
 
+function formatSequence(seq: string): { lineNum: number; blocks: string[] }[] {
+  const lines: { lineNum: number; blocks: string[] }[] = [];
+  for (let i = 0; i < seq.length; i += 60) {
+    const chunk = seq.slice(i, i + 60);
+    const blocks: string[] = [];
+    for (let j = 0; j < chunk.length; j += 10) {
+      blocks.push(chunk.slice(j, j + 10));
+    }
+    lines.push({ lineNum: i + 1, blocks });
+  }
+  return lines;
+}
+
+function runLabel(run: BinderRun): string {
+  if (run.description) return run.description;
+  const parts = [run.algorithm_version, run.run_datetime ? new Date(run.run_datetime).toLocaleDateString() : null].filter(Boolean);
+  return parts.length > 0 ? parts.join(" — ") : `Run #${run.id}`;
+}
+
 export default function ProteinDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [protein, setProtein] = useState<ProteinDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!id) return;
     getProtein(Number(id))
-      .then(setProtein)
+      .then((p) => {
+        setProtein(p);
+        if (p.runs.length > 0) setSelectedRunId(p.runs[0].id);
+      })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [id]);
@@ -86,30 +109,7 @@ export default function ProteinDetailPage() {
             <dt>Length</dt>
             <dd>{protein.length != null ? `${protein.length} aa` : "—"}</dd>
           </dl>
-        </div>
-
-        <div className="pd-header-right">
-          <div className="pd-stat-row">
-            <span className="pd-stat-label">Binder runs</span>
-            <span className="pd-stat-badge">{protein.runs.length}</span>
-          </div>
-          <div className="pd-stat-row">
-            <span className="pd-stat-label">Total binders</span>
-            <span className="pd-stat-badge">{totalBinders}</span>
-          </div>
-          {distTotal > 0 && (
-            <div className="pd-dist">
-              <p className="pd-dist-label">Status distribution</p>
-              {Object.entries(counts).map(([s, n]) => (
-                <div key={s} className="pd-dist-row">
-                  <span className={`pd-dist-dot ${statusClass(s)}`} />
-                  <span className="pd-dist-name">{s}</span>
-                  <span className="pd-dist-pct">{((n / distTotal) * 100).toFixed(1)}%</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        </div>        
       </div>
 
       {/* ── Sequence ── */}
@@ -122,47 +122,47 @@ export default function ProteinDetailPage() {
             {copied ? "Copied!" : "Copy sequence"}
           </button>
         </div>
-        <div className="pd-seq-block">{protein.sequence}</div>
+        <div className="pd-seq-block">
+          {formatSequence(protein.sequence).map(({ lineNum, blocks }) => (
+            <div key={lineNum} className="seq-line">
+              <span className="seq-num">{lineNum}</span>
+              <span className="seq-blocks">{blocks.join(" ")}</span>
+              <span className="seq-end">{Math.min(lineNum + 59, protein.sequence.length)}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* ── Runs + sidebar ── */}
-      <div className="pd-body">
-        <div className="pd-runs">
-          <h2>Binder Runs ({protein.runs.length})</h2>
-          {protein.runs.length === 0 ? (
-            <p className="status">No binder runs yet.</p>
-          ) : (
-            protein.runs.map((run) => <RunCard key={run.id} run={run} />)
-          )}
-        </div>
+      <h2 style={{ marginBottom: "0.75rem" }}>Binder Runs ({protein.runs.length})</h2>
+      {protein.runs.length === 0 ? (
+        <p className="status">No binder runs yet.</p>
+      ) : (
+        <div className="pd-body">
+          <aside className="pd-run-nav">
+            {protein.runs.map((run) => (
+              <button
+                key={run.id}
+                className={`pd-run-nav-item${selectedRunId === run.id ? " active" : ""}`}
+                onClick={() => setSelectedRunId(run.id)}
+              >
+                {runLabel(run)}
+              </button>
+            ))}
+          </aside>
 
-        <aside className="pd-sidebar">
-          <div className="pd-panel">
-            <div className="pd-panel-title">Status Legend</div>
-            <div className="pd-legend-item">
-              <span className="pd-legend-dot s-success" />
-              <div>
-                <div className="pd-legend-name">Success</div>
-                <div className="pd-legend-desc">Binder passed all filters</div>
-              </div>
-            </div>
-            <div className="pd-legend-item">
-              <span className="pd-legend-dot s-failed" />
-              <div>
-                <div className="pd-legend-name">Failed</div>
-                <div className="pd-legend-desc">See failure_reason for details</div>
-              </div>
-            </div>
-            <div className="pd-legend-item">
-              <span className="pd-legend-dot s-unknown" />
-              <div>
-                <div className="pd-legend-name">Unknown</div>
-                <div className="pd-legend-desc">Status not yet assigned</div>
-              </div>
-            </div>
+          <div className="pd-run-content">
+            {(() => {
+              const run = protein.runs.find((r) => r.id === selectedRunId);
+              if (!run) return null;
+              const sorted = [...run.binders].sort(
+                (a, b) => (a.final_rank ?? Infinity) - (b.final_rank ?? Infinity)
+              );
+              return <BindersTable binders={sorted} runCifPath={run.cif_path} />;
+            })()}
           </div>
-        </aside>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -188,8 +188,17 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
     <div className="cif-modal-overlay" onClick={onClose}>
       <div className="cif-modal" onClick={(e) => e.stopPropagation()}>
         <div className="cif-modal-header">
-          <span>Binder #{binder.id}</span>
+          <span>RANK #{binder.final_rank}, QUALITY SCORE: {binder.quality_score?.toFixed(3) ?? "—"}, DESIGN TO TARGET IPTM: {binder.design_to_target_iptm?.toFixed(3) ?? "—"}</span>
           <button className="cif-modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="cif-modal-sequence">
+          {formatSequence(binder.binder_sequence).map(({ lineNum, blocks }) => (
+            <div key={lineNum} className="seq-line">
+              <span className="seq-num">{lineNum}</span>
+              <span className="seq-blocks">{blocks.join(" ")}</span>
+              <span className="seq-end">{Math.min(lineNum + 59, binder.binder_sequence.length)}</span>
+            </div>
+          ))}
         </div>
         {hasCifs ? (
           <div className="cif-modal-viewers">
@@ -208,73 +217,48 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
   );
 }
 
-function RunCard({ run }: { run: BinderRun }) {
+function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: string | null }) {
   const [selectedBinder, setSelectedBinder] = useState<Binder | null>(null);
 
+  if (binders.length === 0) return <p className="status">No binders.</p>;
+
   return (
-    <div className="run-card">
-      <div className="run-card-header">
-        <span className="run-title">
-          Run #{run.id}
-          {run.algorithm_version && (
-            <span className="run-algo"> — {run.algorithm_version}</span>
-          )}
-        </span>
-        <span className="run-date">{new Date(run.run_datetime).toLocaleString()}</span>
-      </div>
-
-      {(run.hardware || run.description || run.notes) && (
-        <dl className="run-meta">
-          {run.hardware && <><dt>Hardware</dt><dd>{run.hardware}</dd></>}
-          {run.description && <><dt>Description</dt><dd>{run.description}</dd></>}
-          {run.notes && <><dt>Notes</dt><dd>{run.notes}</dd></>}
-        </dl>
-      )}
-
-      <h4>Binders ({run.binders.length})</h4>
-      {run.binders.length === 0 ? (
-        <p className="status">No binders.</p>
-      ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Length (aa)</th>
-              <th>Status</th>
-              <th>Sequence</th>
-              <th>Failure Reason</th>
+    <>
+      <table>
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Quality Score</th>
+            <th>iPTM</th>
+            <th>Sequence</th>
+            <th>Length (aa)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {binders.map((b) => (
+            <tr
+              key={b.id}
+              className="binder-row"
+              onClick={() => setSelectedBinder(b)}
+              title="Click to view structures"
+            >
+              <td>{b.final_rank ?? "—"}</td>
+              <td>{b.quality_score != null ? b.quality_score.toFixed(3) : "—"}</td>
+              <td>{b.design_to_target_iptm != null ? b.design_to_target_iptm.toFixed(3) : "—"}</td>
+              <td className="sequence">{b.binder_sequence}</td>
+              <td>{b.binder_length ?? "—"}</td>
             </tr>
-          </thead>
-          <tbody>
-            {run.binders.map((b) => (
-              <tr
-                key={b.id}
-                className="binder-row"
-                onClick={() => setSelectedBinder(b)}
-                title="Click to view structures"
-              >
-                <td>{b.id}</td>
-                <td>{b.binder_length ?? "—"}</td>
-                <td>
-                  <span className={`status-pill ${statusClass(b.status)}`}>
-                    {b.status ?? "—"}
-                  </span>
-                </td>
-                <td className="sequence">{b.binder_sequence}</td>
-                <td>{b.failure_reason ?? "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+          ))}
+        </tbody>
+      </table>
 
       {selectedBinder && (
         <BinderModal
           binder={selectedBinder}
-          runCifPath={run.cif_path}
+          runCifPath={runCifPath}
           onClose={() => setSelectedBinder(null)}
         />
       )}
-    </div>
+    </>
   );
 }

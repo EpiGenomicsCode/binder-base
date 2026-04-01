@@ -91,20 +91,26 @@ class Command(BaseCommand):
 
         existing_run_dirs = set(BinderRun.objects.values_list("run_dir", flat=True))
 
+        # concatenate each existing run dir with MEDIA_ROOT to get the full path for comparison
+        existing_run_dirs = set(os.path.join(settings.MEDIA_ROOT, rd) for rd in existing_run_dirs)
+
         imported = 0
         skipped = 0
 
-        for entry in sorted(os.scandir(runs_root), key=lambda e: e.name):
+        for entry in os.scandir(runs_root):
             if not entry.is_dir():
                 continue
 
             run_dir = entry.path
+            run_dir_rel = os.path.relpath(run_dir, settings.MEDIA_ROOT)
 
+            # Check if this run_dir is already in the database (compare full paths)
             if run_dir in existing_run_dirs:
                 self.stdout.write(f"Skipping (already imported): {entry.name}")
                 skipped += 1
                 continue
 
+            # Skip directories that do not match the expected naming pattern
             match = RUN_DIR_PATTERN.match(entry.name)
             if not match:
                 self.stdout.write(self.style.WARNING(
@@ -117,13 +123,7 @@ class Command(BaseCommand):
             algorithm_version = match.group("algorithm")
             run_datetime = datetime.strptime(match.group("date"), "%Y%m%d")
 
-            if not os.path.isfile(os.path.join(run_dir, "steps.yaml")):
-                self.stdout.write(self.style.WARNING(
-                    f"Skipping (no steps.yaml): {entry.name}"
-                ))
-                skipped += 1
-                continue
-
+            # Check for required final designs
             designs_dir = os.path.join(run_dir, "final_ranked_designs")
             if not os.path.isdir(designs_dir):
                 self.stdout.write(self.style.WARNING(
@@ -156,7 +156,7 @@ class Command(BaseCommand):
                 protein=protein,
                 algorithm_version=algorithm_version,
                 run_datetime=run_datetime,
-                run_dir=run_dir,
+                run_dir=run_dir_rel,
                 cif_path=run_cif_rel,
             )
 

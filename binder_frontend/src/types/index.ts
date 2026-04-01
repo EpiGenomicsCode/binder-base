@@ -13,6 +13,9 @@ export interface Binder {
   binder_length: number | null;
   status: string | null;
   failure_reason: string | null;
+  final_rank: number | null;
+  quality_score: number | null;
+  design_to_target_iptm: number | null;
   cif_path: string | null;
 }
 
