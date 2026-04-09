@@ -13,6 +13,7 @@ class ProteinListSchema(Schema):
     protein_name: str | None
     organism: str | None
     length: int | None
+    biological_function: str | None
 
 
 class BinderSchema(Schema):

@@ -108,6 +108,12 @@ export default function ProteinDetailPage() {
             </dd>
             <dt>Length</dt>
             <dd>{protein.length != null ? `${protein.length} aa` : "—"}</dd>
+            {protein.biological_function && (
+              <>
+                <dt>Function</dt>
+                <dd>{protein.biological_function}</dd>
+              </>
+            )}
           </dl>
         </div>        
       </div>
