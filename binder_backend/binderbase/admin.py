@@ -5,6 +5,7 @@ from .models import *
 class ProteinAdmin(admin.ModelAdmin):
     list_display = ('uniprot_id', 'gene_name', 'protein_name', 'organism', 'length')
     list_filter = ('organism',)
+    readonly_fields = ('cif_path', 'pae_json_path', 'biological_function')
 
 
 @admin.register(BinderRun)

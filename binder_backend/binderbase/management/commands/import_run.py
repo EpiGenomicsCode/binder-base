@@ -16,6 +16,7 @@ RUN_DIR_PATTERN = re.compile(
     r"^(?P<uniprot>[A-Z0-9]+)-(?P<algorithm>.+)-(?P<date>\d{8})$"
 )
 
+ALPHAFOLD_API = "https://alphafold.ebi.ac.uk/api/prediction/{}"
 UNIPROT_API = "https://rest.uniprot.org/uniprotkb/{}.json"
 
 # Maps CSV column names (lowercase) to Binder model field names
@@ -27,42 +28,47 @@ CSV_COLUMN_MAP = {
 }
 
 
-def _fetch_uniprot(uniprot_id):
-    url = UNIPROT_API.format(uniprot_id)
+def _fetch_alphafold(uniprot_id):
+    url = ALPHAFOLD_API.format(uniprot_id)
     try:
         with urllib.request.urlopen(url, timeout=10) as resp:
             data = json.loads(resp.read())
     except Exception as exc:
-        raise CommandError(f"UniProt lookup failed for {uniprot_id}: {exc}")
+        raise CommandError(f"AlphaFold lookup failed for {uniprot_id}: {exc}")
 
-    seq_block = data.get("sequence", {})
-    sequence = seq_block.get("value", "")
-    length = seq_block.get("length", None)
-
-    gene_name = None
-    genes = data.get("genes", [])
-    if genes:
-        gene_name = genes[0].get("geneName", {}).get("value")
-
-    protein_name = None
-    desc = data.get("proteinDescription", {})
-    recommended = desc.get("recommendedName", {})
-    if recommended:
-        protein_name = recommended.get("fullName", {}).get("value")
-    else:
-        submitted = desc.get("submissionNames", [])
-        if submitted:
-            protein_name = submitted[0].get("fullName", {}).get("value")
-
-    organism = data.get("organism", {}).get("scientificName")
-
+    entry = data[0]
+    sequence = entry.get("sequence", "")
     return {
         "sequence": sequence,
-        "length": length,
-        "gene_name": gene_name,
-        "protein_name": protein_name,
-        "organism": organism,
+        "length": len(sequence),
+        "gene_name": entry.get("gene"),
+        "protein_name": entry.get("uniprotDescription"),
+        "organism": entry.get("organismScientificName"),
+        "cif_url": entry.get("cifUrl"),
+        "pae_doc_url": entry.get("paeDocUrl"),
     }
+
+
+def _fetch_biological_function(uniprot_id):
+    url = UNIPROT_API.format(uniprot_id)
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.loads(resp.read())
+        for comment in data.get("comments", []):
+            if comment.get("commentType") == "FUNCTION":
+                texts = comment.get("texts", [])
+                if texts:
+                    return texts[0].get("value")
+    except Exception:
+        pass
+    return None
+
+
+def _download_file(url, dest_path):
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    with urllib.request.urlopen(url, timeout=30) as resp:
+        with open(dest_path, "wb") as f:
+            f.write(resp.read())
 
 
 class Command(BaseCommand):
@@ -139,9 +145,34 @@ class Command(BaseCommand):
                 protein = Protein.objects.get(uniprot_id=uniprot_id)
                 self.stdout.write(f"Found Protein: {uniprot_id}")
             except Protein.DoesNotExist:
-                self.stdout.write(f"Fetching UniProt data for: {uniprot_id} ...")
-                uniprot_data = _fetch_uniprot(uniprot_id)
-                protein = Protein.objects.create(uniprot_id=uniprot_id, **uniprot_data)
+                self.stdout.write(f"Fetching AlphaFold data for: {uniprot_id} ...")
+                alphafold_data = _fetch_alphafold(uniprot_id)
+                biological_function = _fetch_biological_function(uniprot_id)
+
+                proteins_dir = os.path.join(settings.MEDIA_ROOT, "proteins", uniprot_id)
+                cif_rel = pae_rel = None
+
+                if alphafold_data.get("cif_url"):
+                    cif_dest = os.path.join(proteins_dir, "model.cif")
+                    _download_file(alphafold_data["cif_url"], cif_dest)
+                    cif_rel = os.path.relpath(cif_dest, settings.MEDIA_ROOT)
+
+                if alphafold_data.get("pae_doc_url"):
+                    pae_dest = os.path.join(proteins_dir, "pae.json")
+                    _download_file(alphafold_data["pae_doc_url"], pae_dest)
+                    pae_rel = os.path.relpath(pae_dest, settings.MEDIA_ROOT)
+
+                protein = Protein.objects.create(
+                    uniprot_id=uniprot_id,
+                    sequence=alphafold_data["sequence"],
+                    length=alphafold_data["length"],
+                    gene_name=alphafold_data["gene_name"],
+                    protein_name=alphafold_data["protein_name"],
+                    organism=alphafold_data["organism"],
+                    biological_function=biological_function,
+                    cif_path=cif_rel,
+                    pae_json_path=pae_rel,
+                )
                 self.stdout.write(
                     f"Created Protein: {uniprot_id} ({protein.protein_name})"
                 )

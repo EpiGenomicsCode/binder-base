@@ -8,6 +8,9 @@ class Protein(models.Model):
     sequence = models.TextField()
     length = models.PositiveBigIntegerField(null=True, blank=True)
     organism = models.CharField(max_length=255, null=True, blank=True)
+    biological_function = models.TextField(null=True, blank=True)
+    cif_path = models.FileField(null=True, blank=True, max_length=1024, verbose_name="AlphaFold CIF path")
+    pae_json_path = models.FileField(null=True, blank=True, max_length=1024, verbose_name="PAE JSON path")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
