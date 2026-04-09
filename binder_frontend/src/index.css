@@ -376,6 +376,107 @@ dd { margin: 0; word-break: break-word; }
   user-select: none;
 }
 
+/* ── Structure + PAE section ── */
+.pd-structure-section {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  margin-bottom: 1.25rem;
+  overflow: hidden;
+}
+
+.pd-structure-plots {
+  display: flex;
+  height: 500px;
+}
+
+/* ── PAE viewer ── */
+.pae-wrap {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid #ebebeb;
+}
+.pae-wrap:last-child { border-right: none; }
+
+.pae-body {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  min-height: 0;
+  padding: 0.75rem;
+}
+
+.pae-axis-y {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 0.75rem;
+  color: #888;
+  text-align: center;
+  flex-shrink: 0;
+  padding-right: 0.4rem;
+}
+
+.pae-axis-x {
+  display: block;
+  text-align: center;
+  font-size: 0.75rem;
+  color: #888;
+  padding: 0.3rem 0 0.5rem;
+}
+
+.pae-plot {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pae-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.pae-status {
+  color: #888;
+  font-style: italic;
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+.pae-legend {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding-left: 0.5rem;
+  flex-shrink: 0;
+}
+
+.pae-legend-val {
+  font-size: 0.72rem;
+  color: #888;
+  white-space: nowrap;
+}
+
+.pae-legend-bar {
+  flex: 1;
+  width: 14px;
+  border-radius: 3px;
+  background: linear-gradient(
+    to bottom,
+    rgb(255, 255, 255),
+    rgb(0, 128, 80)
+  );
+  min-height: 60px;
+}
+
 /* ── CIF viewer ── */
 .cif-viewer-wrap {
   flex: 1 1 0;

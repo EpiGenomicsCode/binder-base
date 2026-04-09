@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { getProtein } from "../api/client";
 import type { Binder, BinderRun, ProteinDetail } from "../types";
 import CifViewer from "../components/CifViewer";
+import PaeViewer from "../components/PaeViewer";
 
 function statusClass(status: string | null): string {
   if (!status) return "s-unknown";
@@ -117,7 +118,7 @@ export default function ProteinDetailPage() {
           </dl>
         </div>        
       </div>
-
+      
       {/* ── Sequence ── */}
       <div className="pd-seq-section">
         <div className="pd-seq-header">
@@ -138,6 +139,20 @@ export default function ProteinDetailPage() {
           ))}
         </div>
       </div>
+
+      {/* ── Structure & PAE ── */}
+      {(protein.cif_path || protein.pae_json_path) && (
+        <div className="pd-structure-section">
+          <div className="pd-structure-plots">
+            {protein.pae_json_path && (
+              <PaeViewer paeJsonPath={protein.pae_json_path} />
+            )}
+            {protein.cif_path && (
+              <CifViewer cifPath={protein.cif_path} label="AlphaFold Structure" />
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Runs + sidebar ── */}
       <h2 style={{ marginBottom: "0.75rem" }}>Binder Runs ({protein.runs.length})</h2>

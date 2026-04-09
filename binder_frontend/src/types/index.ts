@@ -6,6 +6,8 @@ export interface Protein {
   organism: string | null;
   length: number | null;
   biological_function: string | null;
+  cif_path: string | null;
+  pae_json_path: string | null;
 }
 
 export interface Binder {
