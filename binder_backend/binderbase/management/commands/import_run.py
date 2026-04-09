@@ -21,15 +21,9 @@ UNIPROT_API = "https://rest.uniprot.org/uniprotkb/{}.json"
 # Maps CSV column names (lowercase) to Binder model field names
 CSV_COLUMN_MAP = {
     "sequence": "binder_sequence",
-    "binder_sequence": "binder_sequence",
-    "rank": "final_rank",
     "final_rank": "final_rank",
     "quality_score": "quality_score",
-    "score": "quality_score",
-    "iptm": "design_to_target_iptm",
     "design_to_target_iptm": "design_to_target_iptm",
-    "status": "status",
-    "failure_reason": "failure_reason",
 }
 
 
@@ -210,17 +204,41 @@ class Command(BaseCommand):
                         except (ValueError, TypeError):
                             fields[float_field] = None
 
+                # Infer status from "pass_filters" column if it exists
+                pass_filters = next(
+                    (v for k, v in row.items() if k.strip().lower() == "pass_filters"),
+                    None,
+                )
+                if pass_filters is not None:
+                    if pass_filters.strip().lower() == "true":
+                        fields["status"] = "success"
+                    else:
+                        fields["status"] = "failed"
+                        failed_filters = [
+                            re.sub(r"^pass_", "", k.strip(), flags=re.IGNORECASE)
+                            for k, v in row.items()
+                            if re.match(r"pass_.+_filter$", k.strip().lower())
+                            and (v or "").strip().lower() == "false"
+                        ]
+                        if failed_filters:
+                            fields["failure_reason"] = "failed to pass " + ", ".join(failed_filters)
+
                 if extra_metrics:
                     fields["metrics"] = extra_metrics
 
-                # Find matching CIF file in designs_dir by rank
+                # Find matching CIF file in designs_dir by rank and file_name
                 rank = fields.get("final_rank")
-                if rank is not None:
+
+                file_name = next(
+                    (v for k, v in extra_metrics.items() if k.strip().lower() == "file_name"),
+                    None,
+                )
+
+                if rank is not None and file_name:
+                    cif_name = f"rank{rank:03d}_{file_name}"
+
                     cif_matches = glob_module.glob(
-                        os.path.join(designs_dir, "**", f"*rank{rank:03d}*.cif"),
-                        recursive=True,
-                    ) or glob_module.glob(
-                        os.path.join(designs_dir, "**", f"*_{rank}_*.cif"),
+                        os.path.join(designs_dir, "**", cif_name),
                         recursive=True,
                     )
                     if cif_matches:
