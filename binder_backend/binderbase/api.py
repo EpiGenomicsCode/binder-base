@@ -13,6 +13,17 @@ class ProteinListSchema(Schema):
     protein_name: str | None
     organism: str | None
     length: int | None
+    biological_function: str | None
+    cif_path: str | None
+    pae_json_path: str | None
+
+    @staticmethod
+    def resolve_cif_path(obj):
+        return obj.cif_path.name if obj.cif_path else None
+
+    @staticmethod
+    def resolve_pae_json_path(obj):
+        return obj.pae_json_path.name if obj.pae_json_path else None
 
 
 class BinderSchema(Schema):
