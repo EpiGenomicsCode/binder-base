@@ -22,6 +22,83 @@ h2 { margin-top: 2rem; }
 h3 { margin: 0 0 0.75rem; }
 h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; color: #555; }
 
+/* ── Hero search ── */
+.hero {
+  text-align: center;
+  padding: 3rem 1rem 2.5rem;
+  margin-bottom: 2rem;
+}
+
+.hero-title {
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 0 0 0.6rem;
+  color: #111;
+}
+
+.hero-sub {
+  color: #666;
+  font-size: 1rem;
+  margin: 0 0 1.75rem;
+}
+
+.hero-search-wrap {
+  max-width: 620px;
+  margin: 0 auto 1rem;
+  position: relative;
+}
+
+.hero-search-input {
+  width: 100%;
+  padding: 0.85rem 1.25rem;
+  font-size: 1rem;
+  border: 2px solid #d1d5db;
+  border-radius: 99px;
+  outline: none;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.hero-search-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 2px 12px rgba(37,99,235,0.15);
+}
+
+.hero-examples {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.875rem;
+  color: #888;
+}
+
+.hero-examples-label {
+  color: #aaa;
+}
+
+.hero-example-chip {
+  background: none;
+  border: 1px solid #d1d5db;
+  border-radius: 99px;
+  padding: 0.2rem 0.75rem;
+  font-size: 0.82rem;
+  color: #2563eb;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.hero-example-chip:hover {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
+.search-result-count {
+  font-size: 0.88rem;
+  color: #888;
+  margin-bottom: 0.75rem;
+}
+
 /* Tables */
 table {
   width: 100%;
