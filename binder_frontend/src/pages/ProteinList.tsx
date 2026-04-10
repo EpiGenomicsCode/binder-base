@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { getProteins } from "../api/client";
 import type { Protein } from "../types";
-
-const EXAMPLES = ["Q9H9E1", "ANKRA2", "Homo sapiens", "Ankyrin"];
+import ProteinSearchBar from "../components/ProteinSearchBar";
 
 function matches(p: Protein, q: string): boolean {
   const lq = q.toLowerCase();
@@ -19,8 +18,8 @@ export default function ProteinList() {
   const [proteins, setProteins] = useState<Protein[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [query, setQuery] = useState(searchParams.get("q") ?? "");
 
   useEffect(() => {
     getProteins()
@@ -29,6 +28,15 @@ export default function ProteinList() {
       .finally(() => setLoading(false));
   }, []);
 
+  function handleQueryChange(q: string) {
+    setQuery(q);
+    if (q.trim()) {
+      setSearchParams({ q: q.trim() }, { replace: true });
+    } else {
+      setSearchParams({}, { replace: true });
+    }
+  }
+
   const filtered = useMemo(
     () => (query.trim() ? proteins.filter((p) => matches(p, query.trim())) : proteins),
     [proteins, query]
@@ -36,41 +44,12 @@ export default function ProteinList() {
 
   return (
     <div>
-      {/* ── Hero search ── */}
-      <div className="hero">
-        <h1 className="hero-title">Protein Binder Design Database</h1>
-        <p className="hero-sub">
-          Search proteins by UniProt ID, gene name, organism, or protein name.
-        </p>
-        <div className="hero-search-wrap">
-          <input
-            ref={inputRef}
-            className="hero-search-input"
-            type="search"
-            placeholder="Search proteins…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            autoFocus
-          />
-        </div>
-        <div className="hero-examples">
-          <span className="hero-examples-label">Try:</span>
-          {EXAMPLES.map((ex) => (
-            <button
-              key={ex}
-              className="hero-example-chip"
-              onClick={() => {
-                setQuery(ex);
-                inputRef.current?.focus();
-              }}
-            >
-              {ex}
-            </button>
-          ))}
-        </div>
+      <div className="list-header">
+        <Link to="/" className="back-link-inline">← Home</Link>
+        <h2 className="list-title">All Proteins</h2>
+        <ProteinSearchBar value={query} onChange={handleQueryChange} compact />
       </div>
 
-      {/* ── Results ── */}
       {loading ? (
         <p className="status">Loading…</p>
       ) : error ? (
@@ -97,9 +76,7 @@ export default function ProteinList() {
             <tbody>
               {filtered.map((p) => (
                 <tr key={p.id}>
-                  <td>
-                    <Link to={`/proteins/${p.id}`}>{p.uniprot_id ?? "—"}</Link>
-                  </td>
+                  <td><Link to={`/proteins/${p.id}`}>{p.uniprot_id ?? "—"}</Link></td>
                   <td>{p.gene_name ?? "—"}</td>
                   <td>{p.protein_name ?? "—"}</td>
                   <td>{p.organism ?? "—"}</td>

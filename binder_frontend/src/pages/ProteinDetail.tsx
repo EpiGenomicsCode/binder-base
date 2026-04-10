@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { getProtein } from "../api/client";
 import type { Binder, BinderRun, ProteinDetail } from "../types";
 import CifViewer from "../components/CifViewer";
 import PaeViewer from "../components/PaeViewer";
+import ProteinSearchBar from "../components/ProteinSearchBar";
 
 function statusClass(status: string | null): string {
   if (!status) return "s-unknown";
@@ -47,11 +48,13 @@ function runLabel(run: BinderRun): string {
 
 export default function ProteinDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [protein, setProtein] = useState<ProteinDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     if (!id) return;
@@ -82,7 +85,15 @@ export default function ProteinDetailPage() {
 
   return (
     <div>
-      <p className="back-link"><Link to="/">← All Proteins</Link></p>
+      <div className="pd-topbar">
+        <Link to="/proteins" className="back-link-inline">← All Proteins</Link>
+        <ProteinSearchBar
+          value={searchQuery}
+          onChange={setSearchQuery}
+          onSubmit={(q) => navigate(q ? `/proteins?q=${encodeURIComponent(q)}` : "/proteins")}
+          compact
+        />
+      </div>
 
       {/* ── Header ── */}
       <div className="pd-header">
