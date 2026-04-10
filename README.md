@@ -122,7 +122,7 @@ python manage.py import_run
 
 The command scans `MEDIA_ROOT/runs/`, skips directories already in the database or that don't match the naming pattern, and for each new run:
 
-1. Looks up or creates the `Protein` record via the UniProt REST API.
+1. Looks up or creates the `Protein` record by querying the AlphaFold API (sequence, gene name, organism, structure CIF, PAE JSON) and UniProt API (biological function). The AlphaFold CIF and PAE JSON files are downloaded to `MEDIA_ROOT/proteins/{uniprot_id}/`.
 2. Creates a `BinderRun` record.
 3. Bulk-creates `Binder` records from the CSV.
 
@@ -146,6 +146,9 @@ Returns a list of all proteins.
 | `protein_name` | string | Full protein name |
 | `organism` | string | Scientific organism name |
 | `length` | int | Sequence length (aa) |
+| `biological_function` | string | Biological function description (from UniProt) |
+| `cif_path` | string | Relative path to the AlphaFold predicted structure CIF file |
+| `pae_json_path` | string | Relative path to the AlphaFold PAE JSON file |
 
 ---
 
@@ -163,6 +166,9 @@ Returns full detail for a single protein, including all binder runs and their ra
 | `protein_name` | string | Full protein name |
 | `organism` | string | Scientific organism name |
 | `length` | int | Sequence length (aa) |
+| `biological_function` | string | Biological function description (from UniProt) |
+| `cif_path` | string | Relative path to the AlphaFold predicted structure CIF file |
+| `pae_json_path` | string | Relative path to the AlphaFold PAE JSON file |
 | `sequence` | string | Full amino acid sequence |
 | `created_at` | datetime | Record creation timestamp |
 | `updated_at` | datetime | Last update timestamp |
