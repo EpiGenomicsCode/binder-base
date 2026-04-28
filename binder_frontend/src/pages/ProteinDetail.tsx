@@ -238,7 +238,7 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
               <CifViewer cifPath={runCifPath} label="Target protein" />
             )}
             {binder.cif_path && (
-              <CifViewer cifPath={binder.cif_path} label="Binder" />
+              <CifViewer cifPath={binder.cif_path} label="Target + Binder" />
             )}
           </div>
         ) : (
