@@ -19,6 +19,7 @@ export interface Binder {
   final_rank: number | null;
   quality_score: number | null;
   design_to_target_iptm: number | null;
+  metrics: Record<string, unknown> | null;
   cif_path: string | null;
 }
 

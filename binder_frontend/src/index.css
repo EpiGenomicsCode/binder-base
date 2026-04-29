@@ -518,10 +518,16 @@ dd { margin: 0; word-break: break-word; }
   padding: 0.15rem 0.55rem;
   border-radius: 99px;
   color: #fff;
+  text-transform: uppercase;
 }
 .status-pill.s-success { background: #22c55e; }
 .status-pill.s-failed  { background: #ef4444; }
 .status-pill.s-unknown { background: #9ca3af; }
+
+.cif-modal-header-right .status-pill {
+  font-size: 0.95rem;
+  padding: 0.25rem 0.8rem;
+}
 
 /* ── Binder row clickable ── */
 .binder-row { cursor: pointer; }
@@ -546,7 +552,7 @@ dd { margin: 0; word-break: break-word; }
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .cif-modal-header {
@@ -558,6 +564,12 @@ dd { margin: 0; word-break: break-word; }
   background: #fafafa;
   font-weight: 600;
   font-size: 0.95rem;
+}
+
+.cif-modal-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
 }
 
 .cif-modal-close {
@@ -573,9 +585,9 @@ dd { margin: 0; word-break: break-word; }
 
 .cif-modal-viewers {
   display: flex;
-  flex: 1;
+  flex-shrink: 0;
   gap: 0;
-  min-height: 0;
+  height: 450px;
 }
 
 .cif-modal-empty {
@@ -592,6 +604,67 @@ dd { margin: 0; word-break: break-word; }
   color: #333;
   border-bottom: 1px solid #ebebeb;
   background: #fafafa;
+}
+
+.cif-modal-meta-title {
+  padding: 0.85rem 1.25rem 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #888;
+  background: #fafafa;
+  border-top: 1px solid #ebebeb;
+}
+
+.cif-modal-meta-table {
+  width: calc(100% - 2.5rem);
+  margin: 0 1.25rem 0.85rem;
+  border-collapse: collapse;
+  border: 1px solid #e0e0e0;
+  background: #fafafa;
+  box-shadow: none;
+  border-radius: 0;
+  font-size: 0.88rem;
+}
+
+.cif-modal-meta-table th,
+.cif-modal-meta-table td {
+  padding: 0.45rem 1rem;
+  border: 1px solid #e0e0e0;
+  background: none;
+  vertical-align: middle;
+}
+
+.cif-modal-meta-table th {
+  font-weight: 600;
+  color: #555;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.88rem;
+  width: 1%;
+  white-space: nowrap;
+  background: none;
+}
+
+.cif-modal-meta-table td {
+  color: #222;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.cif-modal-meta-table td.cif-modal-meta-val-left {
+  border-right: 4px solid #d0d0d0;
+}
+
+.cif-modal-meta-th-right {
+  padding-left: 1.75rem !important;
+}
+
+.cif-modal-meta-table tr:hover th,
+.cif-modal-meta-table tr:hover td {
+  background: none;
 }
 
 .seq-line {
@@ -747,5 +820,6 @@ dd { margin: 0; word-break: break-word; }
 .cif-viewer-canvas {
   position: relative;
   width: 100%;
-  height: 500px;
+  flex: 1;
+  min-height: 0;
 }
