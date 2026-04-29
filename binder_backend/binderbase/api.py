@@ -35,6 +35,7 @@ class BinderSchema(Schema):
     final_rank: int | None
     quality_score: float | None
     design_to_target_iptm: float | None
+    metrics: dict | None
     cif_path: str | None
 
     @staticmethod

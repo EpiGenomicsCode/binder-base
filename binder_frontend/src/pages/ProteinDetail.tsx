@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { getProtein } from "../api/client";
 import type { Binder, BinderRun, ProteinDetail } from "../types";
@@ -244,6 +244,31 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
         ) : (
           <p className="cif-modal-empty">No CIF files available for this binder.</p>
         )}
+        <dl className="cif-modal-meta">
+          <dt>Rank</dt>
+          <dd>{binder.final_rank ?? "—"}</dd>
+          <dt>Status</dt>
+          <dd>
+            {binder.status
+              ? <span className={`status-pill ${statusClass(binder.status)}`}>{binder.status}</span>
+              : "—"}
+          </dd>
+          <dt>Quality Score</dt>
+          <dd>{binder.quality_score != null ? binder.quality_score.toFixed(3) : "—"}</dd>
+          <dt>Design to Target iPTM</dt>
+          <dd>{binder.design_to_target_iptm != null ? binder.design_to_target_iptm.toFixed(3) : "—"}</dd>
+          <dt>Length</dt>
+          <dd>{binder.binder_length != null ? `${binder.binder_length} aa` : "—"}</dd>
+          {binder.failure_reason && (
+            <>
+              <dt>Failure Reason</dt>
+              <dd>{binder.failure_reason}</dd>
+            </>
+          )}
+          {binder.metrics && Object.entries(binder.metrics).map(([key, val]) => (
+            <Fragment key={key}><dt>{key}</dt><dd>{String(val)}</dd></Fragment>
+          ))}
+        </dl>
       </div>
     </div>
   );
