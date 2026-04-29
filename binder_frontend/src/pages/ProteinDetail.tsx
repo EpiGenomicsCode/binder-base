@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { getProtein } from "../api/client";
 import type { Binder, BinderRun, ProteinDetail } from "../types";
@@ -220,8 +220,15 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
     <div className="cif-modal-overlay" onClick={onClose}>
       <div className="cif-modal" onClick={(e) => e.stopPropagation()}>
         <div className="cif-modal-header">
-          <span>RANK #{binder.final_rank}, QUALITY SCORE: {binder.quality_score?.toFixed(3) ?? "—"}, DESIGN TO TARGET IPTM: {binder.design_to_target_iptm?.toFixed(3) ?? "—"}</span>
-          <button className="cif-modal-close" onClick={onClose}>✕</button>
+          <span>RANK #{binder.final_rank}</span>
+          <span>QUALITY SCORE = {binder.quality_score?.toFixed(3) ?? "—"}</span>
+          <span> DESIGN TO TARGET IPTM = {binder.design_to_target_iptm?.toFixed(3) ?? "—"}</span>
+          {binder.status
+              ? <span className={`status-pill ${statusClass(binder.status)}`}>{binder.status}</span>
+              : null}          
+          <div className="cif-modal-header-right">
+            <button className="cif-modal-close" onClick={onClose}>✕</button>
+          </div>
         </div>
         <div className="cif-modal-sequence">
           {formatSequence(binder.binder_sequence).map(({ lineNum, blocks }) => (
@@ -244,31 +251,37 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
         ) : (
           <p className="cif-modal-empty">No CIF files available for this binder.</p>
         )}
-        <dl className="cif-modal-meta">
-          <dt>Rank</dt>
-          <dd>{binder.final_rank ?? "—"}</dd>
-          <dt>Status</dt>
-          <dd>
-            {binder.status
-              ? <span className={`status-pill ${statusClass(binder.status)}`}>{binder.status}</span>
-              : "—"}
-          </dd>
-          <dt>Quality Score</dt>
-          <dd>{binder.quality_score != null ? binder.quality_score.toFixed(3) : "—"}</dd>
-          <dt>Design to Target iPTM</dt>
-          <dd>{binder.design_to_target_iptm != null ? binder.design_to_target_iptm.toFixed(3) : "—"}</dd>
-          <dt>Length</dt>
-          <dd>{binder.binder_length != null ? `${binder.binder_length} aa` : "—"}</dd>
-          {binder.failure_reason && (
-            <>
-              <dt>Failure Reason</dt>
-              <dd>{binder.failure_reason}</dd>
-            </>
-          )}
-          {binder.metrics && Object.entries(binder.metrics).map(([key, val]) => (
-            <Fragment key={key}><dt>{key}</dt><dd>{String(val)}</dd></Fragment>
-          ))}
-        </dl>
+        <div className="cif-modal-meta-title">DETAILS</div>
+        {(() => {
+          const entries: { label: string; value: string }[] = [
+            { label: "Rank", value: binder.final_rank != null ? String(binder.final_rank) : "—" },
+            { label: "Length", value: binder.binder_length != null ? `${binder.binder_length} aa` : "—" },
+            { label: "Quality Score", value: binder.quality_score != null ? binder.quality_score.toFixed(3) : "—" },
+            { label: "Design to Target iPTM", value: binder.design_to_target_iptm != null ? binder.design_to_target_iptm.toFixed(3) : "—" },
+            ...(binder.failure_reason ? [{ label: "Failure Reason", value: binder.failure_reason }] : []),
+            ...(binder.metrics
+              ? Object.entries(binder.metrics)
+                  .filter(([key]) => key !== "id" && key !== "file_name")
+                  .map(([key, val]) => ({ label: key, value: String(val) }))
+              : []),
+          ];
+          const rows: typeof entries[] = [];
+          for (let i = 0; i < entries.length; i += 2) rows.push(entries.slice(i, i + 2));
+          return (
+            <table className="cif-modal-meta-table">
+              <tbody>
+                {rows.map((pair, i) => (
+                  <tr key={i}>
+                    <th>{pair[0].label}</th>
+                    <td className="cif-modal-meta-val-left">{pair[0].value}</td>
+                    <th className="cif-modal-meta-th-right">{pair[1]?.label ?? ""}</th>
+                    <td>{pair[1]?.value ?? ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          );
+        })()}
       </div>
     </div>
   );
