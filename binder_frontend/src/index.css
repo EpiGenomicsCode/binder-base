@@ -22,6 +22,18 @@ h2 { margin-top: 2rem; }
 h3 { margin: 0 0 0.75rem; }
 h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; color: #555; }
 
+/* ── Home header image ── */
+.home-header-img-wrap {
+  margin: -2rem -1.5rem 0;
+  line-height: 0;
+}
+
+.home-header-img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
 /* ── Hero search ── */
 .hero {
   text-align: center;
@@ -115,12 +127,11 @@ h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter
 }
 
 .hero-page {
-  min-height: 60vh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 4rem 1rem;
+  justify-content: flex-start;
+  padding: 1.5rem 1rem 3rem;
 }
 
 .hero-browse-btn {

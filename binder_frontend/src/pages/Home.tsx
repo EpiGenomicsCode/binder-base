@@ -20,8 +20,12 @@ export default function Home() {
   }
 
   return (
+    <>
+      <div className="home-header-img-wrap">
+        <img src="/header.png" alt="" className="home-header-img" />
+      </div>
     <div className="hero hero-page">
-      <h1 className="hero-title">Protein Binder Design Database</h1>
+      <h1 className="hero-title">Protein Binder Database</h1>
       <p className="hero-sub">
         Search proteins by UniProt ID, gene name, organism, or protein name.
       </p>
@@ -59,5 +63,6 @@ export default function Home() {
         </div>
       )}
     </div>
+    </>
   );
 }
