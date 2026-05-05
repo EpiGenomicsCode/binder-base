@@ -1,3 +1,10 @@
+export interface Stats {
+  protein_count: number;
+  run_count: number;
+  binder_count: number;
+  success_count: number;
+}
+
 export interface Protein {
   id: number;
   uniprot_id: string | null;

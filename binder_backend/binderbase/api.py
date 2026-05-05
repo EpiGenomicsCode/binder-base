@@ -1,7 +1,7 @@
 from datetime import datetime
 from ninja import NinjaAPI, Schema
 from django.shortcuts import get_object_or_404
-from .models import Protein
+from .models import Protein, BinderRun, Binder
 
 api = NinjaAPI()
 
@@ -77,6 +77,23 @@ class ProteinDetailSchema(ProteinListSchema):
     @staticmethod
     def resolve_runs(obj):
         return obj.binderrun_set.prefetch_related("binder_set").all()
+
+
+class StatsSchema(Schema):
+    protein_count: int
+    run_count: int
+    binder_count: int
+    success_count: int
+
+
+@api.get("/stats", response=StatsSchema)
+def get_stats(request):
+    return {
+        "protein_count": Protein.objects.count(),
+        "run_count": BinderRun.objects.count(),
+        "binder_count": Binder.objects.count(),
+        "success_count": Binder.objects.filter(status="success").count(),
+    }
 
 
 @api.get("/proteins", response=list[ProteinListSchema])
