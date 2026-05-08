@@ -4,6 +4,9 @@ import { getProteins } from "../api/client";
 import type { Protein } from "../types";
 import ProteinSearchBar from "../components/ProteinSearchBar";
 
+type SortKey = "name" | "gene" | "organism" | "length";
+type SortDir = "asc" | "desc";
+
 function matches(p: Protein, q: string): boolean {
   const lq = q.toLowerCase();
   return (
@@ -12,6 +15,11 @@ function matches(p: Protein, q: string): boolean {
     (p.protein_name ?? "").toLowerCase().includes(lq) ||
     (p.organism ?? "").toLowerCase().includes(lq)
   );
+}
+
+function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
+  if (!active) return <span className="sort-icon inactive">↕</span>;
+  return <span className="sort-icon active">{dir === "asc" ? "↑" : "↓"}</span>;
 }
 
 export default function ProteinList() {
@@ -23,6 +31,8 @@ export default function ProteinList() {
   const [selectedOrganisms, setSelectedOrganisms] = useState<Set<string>>(new Set());
   const [minLength, setMinLength] = useState("");
   const [maxLength, setMaxLength] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   useEffect(() => {
     getProteins()
@@ -40,8 +50,17 @@ export default function ProteinList() {
     }
   }
 
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+
   function toggleOrganism(org: string) {
-    setSelectedOrganisms((prev) => {
+    setSelectedOrganisms((prev: Set<string>) => {
       const next = new Set(prev);
       next.has(org) ? next.delete(org) : next.add(org);
       return next;
@@ -62,14 +81,30 @@ export default function ProteinList() {
   const filtered = useMemo(() => {
     const min = minLength !== "" ? Number(minLength) : null;
     const max = maxLength !== "" ? Number(maxLength) : null;
-    return proteins.filter((p) => {
+    const results = proteins.filter((p) => {
       if (query.trim() && !matches(p, query.trim())) return false;
       if (selectedOrganisms.size > 0 && !selectedOrganisms.has(p.organism ?? "Unknown")) return false;
       if (min !== null && (p.length ?? 0) < min) return false;
       if (max !== null && (p.length ?? 0) > max) return false;
       return true;
     });
-  }, [proteins, query, selectedOrganisms, minLength, maxLength]);
+
+    return [...results].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === "length") {
+        cmp = (a.length ?? 0) - (b.length ?? 0);
+      } else if (sortKey === "gene") {
+        cmp = (a.gene_name ?? "").toLowerCase().localeCompare((b.gene_name ?? "").toLowerCase());
+      } else if (sortKey === "organism") {
+        cmp = (a.organism ?? "").toLowerCase().localeCompare((b.organism ?? "").toLowerCase());
+      } else {
+        const nameA = (a.protein_name ?? a.uniprot_id ?? "").toLowerCase();
+        const nameB = (b.protein_name ?? b.uniprot_id ?? "").toLowerCase();
+        cmp = nameA.localeCompare(nameB);
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [proteins, query, selectedOrganisms, minLength, maxLength, sortKey, sortDir]);
 
   const hasFilters = selectedOrganisms.size > 0 || minLength !== "" || maxLength !== "";
 
@@ -82,7 +117,6 @@ export default function ProteinList() {
   return (
     <div>
       <div className="list-header">
-        <Link to="/" className="back-link-inline">← Home</Link>
         <h2 className="list-title">All Proteins</h2>
         <ProteinSearchBar value={query} onChange={handleQueryChange} compact />
       </div>
@@ -158,10 +192,18 @@ export default function ProteinList() {
                 <thead>
                   <tr>
                     <th>UniProt ID</th>
-                    <th>Gene</th>
-                    <th>Protein Name</th>
-                    <th>Organism</th>
-                    <th>Length (aa)</th>
+                    <th className="th-sortable" onClick={() => handleSort("gene")}>
+                      Gene <SortIcon active={sortKey === "gene"} dir={sortDir} />
+                    </th>
+                    <th className="th-sortable" onClick={() => handleSort("name")}>
+                      Protein Name <SortIcon active={sortKey === "name"} dir={sortDir} />
+                    </th>
+                    <th className="th-sortable" onClick={() => handleSort("organism")}>
+                      Organism <SortIcon active={sortKey === "organism"} dir={sortDir} />
+                    </th>
+                    <th className="th-sortable" onClick={() => handleSort("length")}>
+                      Length (aa) <SortIcon active={sortKey === "length"} dir={sortDir} />
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
