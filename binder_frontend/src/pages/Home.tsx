@@ -24,45 +24,45 @@ export default function Home() {
       <div className="home-header-img-wrap">
         <img src="/header.png" alt="" className="home-header-img" />
       </div>
-    <div className="hero hero-page">
-      <h1 className="hero-title">Protein Binder Database</h1>
-      <p className="hero-sub">
-        Search proteins by UniProt ID, gene name, organism, or protein name.
-      </p>
-      <ProteinSearchBar
-        value={query}
-        onChange={setQuery}
-        onSubmit={handleSubmit}
-        examples={EXAMPLES}
-      />
-      <button
-        className="hero-browse-btn"
-        onClick={() => navigate("/proteins")}
-      >
-        Browse all proteins →
-      </button>
+      <div className="hero hero-page">
+        <h1 className="hero-title">Protein Binder Database</h1>
+        <p className="hero-sub">
+          Search proteins by UniProt ID, gene name, organism, or protein name.
+        </p>
+        <ProteinSearchBar
+          value={query}
+          onChange={setQuery}
+          onSubmit={handleSubmit}
+          examples={EXAMPLES}
+        />
+        <button
+          className="hero-browse-btn"
+          onClick={() => navigate("/proteins")}
+        >
+          Browse all proteins →
+        </button>
 
-      {stats && (
-        <div className="home-stats">
-          <div className="home-stat-card">
-            <span className="home-stat-value">{stats.protein_count}</span>
-            <span className="home-stat-label">Proteins</span>
+        {stats && (
+          <div className="home-stats">
+            <div className="home-stat-card">
+              <span className="home-stat-value">{stats.protein_count}</span>
+              <span className="home-stat-label">Proteins</span>
+            </div>
+            <div className="home-stat-card">
+              <span className="home-stat-value">{stats.run_count}</span>
+              <span className="home-stat-label">Design Runs</span>
+            </div>
+            <div className="home-stat-card">
+              <span className="home-stat-value">{stats.binder_count}</span>
+              <span className="home-stat-label">Binders</span>
+            </div>
+            <div className="home-stat-card">
+              <span className="home-stat-value">{stats.success_count}</span>
+              <span className="home-stat-label">Successful</span>
+            </div>
           </div>
-          <div className="home-stat-card">
-            <span className="home-stat-value">{stats.run_count}</span>
-            <span className="home-stat-label">Design Runs</span>
-          </div>
-          <div className="home-stat-card">
-            <span className="home-stat-value">{stats.binder_count}</span>
-            <span className="home-stat-label">Binders</span>
-          </div>
-          <div className="home-stat-card">
-            <span className="home-stat-value">{stats.success_count}</span>
-            <span className="home-stat-label">Successful</span>
-          </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
     </>
   );
 }
