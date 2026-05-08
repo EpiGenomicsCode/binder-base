@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { getProtein } from "../api/client";
 import type { Binder, BinderRun, ProteinDetail } from "../types";
 import CifViewer from "../components/CifViewer";
@@ -44,13 +44,18 @@ export default function ProteinDetailPage() {
   const [copied, setCopied] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     if (!id) return;
     getProtein(Number(id))
       .then((p) => {
         setProtein(p);
-        if (p.runs.length > 0) setSelectedRunId(p.runs[0].id);
+        if (p.runs.length > 0) {
+          const paramId = Number(searchParams.get("run"));
+          const match = p.runs.find((r) => r.id === paramId);
+          setSelectedRunId(match ? match.id : p.runs[0].id);
+        }
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -162,7 +167,10 @@ export default function ProteinDetailPage() {
               <button
                 key={run.id}
                 className={`pd-run-nav-item${selectedRunId === run.id ? " active" : ""}`}
-                onClick={() => setSelectedRunId(run.id)}
+                onClick={() => {
+                  setSelectedRunId(run.id);
+                  setSearchParams({ run: String(run.id) }, { replace: true });
+                }}
               >
                 {runLabel(run)}
               </button>
