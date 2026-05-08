@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { getProtein } from "../api/client";
 import type { Binder, BinderRun, ProteinDetail } from "../types";
@@ -11,6 +11,7 @@ function statusClass(status: string | null): string {
   const s = status.toLowerCase();
   if (s === "success") return "s-success";
   if (s === "failed" || s === "failure") return "s-failed";
+  if (s === "passed") return "s-passed";
   return "s-unknown";
 }
 
@@ -272,25 +273,87 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
   );
 }
 
+type BinderSortKey = "rank" | "quality" | "iptm" | "length" | "status";
+type BinderSortDir = "asc" | "desc";
+type StatusFilter = "all" | "success" | "passed" | "failed";
+
+function BinderSortIcon({ active, dir }: { active: boolean; dir: BinderSortDir }) {
+  if (!active) return <span className="sort-icon inactive">↕</span>;
+  return <span className="sort-icon active">{dir === "asc" ? "↑" : "↓"}</span>;
+}
+
 function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: string | null }) {
   const [selectedBinder, setSelectedBinder] = useState<Binder | null>(null);
+  const [sortKey, setSortKey] = useState<BinderSortKey>("rank");
+  const [sortDir, setSortDir] = useState<BinderSortDir>("asc");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+
+  function handleSort(key: BinderSortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+
+  const visible = useMemo(() => {
+    let rows = binders;
+    if (statusFilter !== "all")
+      rows = rows.filter((b) => (b.status ?? "").toLowerCase() === statusFilter);
+    return [...rows].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === "rank")    cmp = (a.final_rank ?? Infinity) - (b.final_rank ?? Infinity);
+      if (sortKey === "quality") cmp = (a.quality_score ?? 0) - (b.quality_score ?? 0);
+      if (sortKey === "iptm")    cmp = (a.design_to_target_iptm ?? 0) - (b.design_to_target_iptm ?? 0);
+      if (sortKey === "length")  cmp = (a.binder_length ?? 0) - (b.binder_length ?? 0);
+      if (sortKey === "status")  cmp = (a.status ?? "").toLowerCase().localeCompare((b.status ?? "").toLowerCase());
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [binders, statusFilter, sortKey, sortDir]);
 
   if (binders.length === 0) return <p className="status">No binders.</p>;
 
   return (
     <>
+      <div className="binder-filter-bar">
+        {(["all", "success", "passed", "failed"] as const).map((f) => (
+          <button
+            key={f}
+            className={`binder-filter-btn${statusFilter === f ? " active" : ""}`}
+            onClick={() => setStatusFilter(f)}
+          >
+            {f.charAt(0).toUpperCase() + f.slice(1)}
+          </button>
+        ))}
+        <span className="binder-filter-count">
+          {visible.length} binder{visible.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+
       <table>
         <thead>
           <tr>
-            <th>Rank</th>
-            <th>Quality Score</th>
-            <th>iPTM</th>
+            <th className="th-sortable" onClick={() => handleSort("rank")}>
+              Rank <BinderSortIcon active={sortKey === "rank"} dir={sortDir} />
+            </th>
+            <th className="th-sortable" onClick={() => handleSort("quality")}>
+              Quality Score <BinderSortIcon active={sortKey === "quality"} dir={sortDir} />
+            </th>
+            <th className="th-sortable" onClick={() => handleSort("iptm")}>
+              iPTM <BinderSortIcon active={sortKey === "iptm"} dir={sortDir} />
+            </th>
             <th>Sequence</th>
-            <th>Length (aa)</th>
+            <th className="th-sortable" onClick={() => handleSort("length")}>
+              Length (aa) <BinderSortIcon active={sortKey === "length"} dir={sortDir} />
+            </th>
+            <th className="th-sortable" onClick={() => handleSort("status")}>
+              Status <BinderSortIcon active={sortKey === "status"} dir={sortDir} />
+            </th>
           </tr>
         </thead>
         <tbody>
-          {binders.map((b) => (
+          {visible.map((b) => (
             <tr
               key={b.id}
               className="binder-row"
@@ -302,6 +365,11 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
               <td>{b.design_to_target_iptm != null ? b.design_to_target_iptm.toFixed(3) : "—"}</td>
               <td className="sequence">{b.binder_sequence}</td>
               <td>{b.binder_length ?? "—"}</td>
+              <td>
+                {b.status ? (
+                  <span className={`status-pill ${statusClass(b.status)}`}>{b.status}</span>
+                ) : "—"}
+              </td>
             </tr>
           ))}
         </tbody>
