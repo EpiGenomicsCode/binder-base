@@ -23,6 +23,7 @@ environ.Env.read_env()
 
 SECRET_KEY = env("SECRET_KEY")
 DEBUG = env('DEBUG')
+ADMIN_URL = env("ADMIN_URL")
 ALLOWED_HOSTS = ['*']
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
