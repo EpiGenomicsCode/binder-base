@@ -14,18 +14,6 @@ function statusClass(status: string | null): string {
   return "s-unknown";
 }
 
-function statusDistribution(runs: BinderRun[]) {
-  const counts: Record<string, number> = {};
-  let total = 0;
-  for (const run of runs) {
-    for (const b of run.binders) {
-      const key = b.status ?? "Unknown";
-      counts[key] = (counts[key] ?? 0) + 1;
-      total++;
-    }
-  }
-  return { counts, total };
-}
 
 function formatSequence(seq: string): { lineNum: number; blocks: string[] }[] {
   const lines: { lineNum: number; blocks: string[] }[] = [];
@@ -79,9 +67,6 @@ export default function ProteinDetailPage() {
   if (error === "404") return <p className="status error">Protein not found.</p>;
   if (error) return <p className="status error">Failed to load protein: {error}</p>;
   if (!protein) return null;
-
-  const totalBinders = protein.runs.reduce((sum, r) => sum + r.binders.length, 0);
-  const { counts, total: distTotal } = statusDistribution(protein.runs);
 
   return (
     <div>

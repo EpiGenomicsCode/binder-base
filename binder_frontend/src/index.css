@@ -1032,6 +1032,21 @@ dd { margin: 0; word-break: break-word; }
   min-height: 60px;
 }
 
+/* ── Sortable column headers ── */
+.th-sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.th-sortable:hover { background: #e8e8e8; }
+
+.sort-icon {
+  margin-left: 0.3rem;
+  font-style: normal;
+}
+.sort-icon.inactive { color: #bbb; }
+.sort-icon.active { color: var(--teal); }
+
 /* ── CIF viewer ── */
 .cif-viewer-wrap {
   flex: 1 1 0;
