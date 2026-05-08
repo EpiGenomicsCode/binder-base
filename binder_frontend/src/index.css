@@ -370,6 +370,20 @@ h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter
   color: #888;
 }
 
+/* ── About page ── */
+.about-body {
+  max-width: 640px;
+  width: 100%;
+  text-align: left;
+}
+
+.about-section-body {
+  font-size: 0.95rem;
+  color: #444;
+  line-height: 1.65;
+  margin-bottom: 1rem;
+}
+
 .list-header {
   display: flex;
   align-items: center;
