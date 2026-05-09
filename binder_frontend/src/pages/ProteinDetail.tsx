@@ -173,6 +173,7 @@ export default function ProteinDetailPage() {
                 }}
               >
                 {runLabel(run)}
+                <span className="run-nav-count">{run.binders.length}</span>
               </button>
             ))}
           </aside>
