@@ -4,7 +4,7 @@ import { getProteins } from "../api/client";
 import type { Protein } from "../types";
 import ProteinSearchBar from "../components/ProteinSearchBar";
 
-type SortKey = "name" | "gene" | "organism" | "length";
+type SortKey = "uniprot" | "name" | "gene" | "organism" | "length";
 type SortDir = "asc" | "desc";
 
 function matches(p: Protein, q: string): boolean {
@@ -31,7 +31,7 @@ export default function ProteinList() {
   const [selectedOrganisms, setSelectedOrganisms] = useState<Set<string>>(new Set());
   const [minLength, setMinLength] = useState("");
   const [maxLength, setMaxLength] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortKey, setSortKey] = useState<SortKey>("uniprot");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   useEffect(() => {
@@ -97,6 +97,8 @@ export default function ProteinList() {
         cmp = (a.gene_name ?? "").toLowerCase().localeCompare((b.gene_name ?? "").toLowerCase());
       } else if (sortKey === "organism") {
         cmp = (a.organism ?? "").toLowerCase().localeCompare((b.organism ?? "").toLowerCase());
+      } else if (sortKey === "uniprot") {
+        cmp = (a.uniprot_id ?? "").toLowerCase().localeCompare((b.uniprot_id ?? "").toLowerCase());
       } else {
         const nameA = (a.protein_name ?? a.uniprot_id ?? "").toLowerCase();
         const nameB = (b.protein_name ?? b.uniprot_id ?? "").toLowerCase();
@@ -191,7 +193,9 @@ export default function ProteinList() {
               <table>
                 <thead>
                   <tr>
-                    <th>UniProt ID</th>
+                    <th className="th-sortable" onClick={() => handleSort("uniprot")}>
+                      UniProt ID <SortIcon active={sortKey === "uniprot"} dir={sortDir} />
+                    </th>
                     <th className="th-sortable" onClick={() => handleSort("gene")}>
                       Gene <SortIcon active={sortKey === "gene"} dir={sortDir} />
                     </th>
