@@ -291,11 +291,16 @@ function BinderSortIcon({ active, dir }: { active: boolean; dir: BinderSortDir }
   return <span className="sort-icon active">{dir === "asc" ? "↑" : "↓"}</span>;
 }
 
+const PAGE_SIZES = [20, 50, 100] as const;
+type PageSize = typeof PAGE_SIZES[number];
+
 function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: string | null }) {
   const [selectedBinder, setSelectedBinder] = useState<Binder | null>(null);
   const [sortKey, setSortKey] = useState<BinderSortKey>("rank");
   const [sortDir, setSortDir] = useState<BinderSortDir>("asc");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(20);
 
   function handleSort(key: BinderSortKey) {
     if (sortKey === key) {
@@ -304,9 +309,15 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
       setSortKey(key);
       setSortDir("asc");
     }
+    setPage(1);
   }
 
-  const visible = useMemo(() => {
+  function handleStatusFilter(f: StatusFilter) {
+    setStatusFilter(f);
+    setPage(1);
+  }
+
+  const sorted = useMemo(() => {
     let rows = binders;
     if (statusFilter !== "all")
       rows = rows.filter((b) => (b.status ?? "").toLowerCase() === statusFilter);
@@ -321,6 +332,10 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
     });
   }, [binders, statusFilter, sortKey, sortDir]);
 
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const visible = sorted.slice((safePage - 1) * pageSize, safePage * pageSize);
+
   if (binders.length === 0) return <p className="status">No binders.</p>;
 
   return (
@@ -330,13 +345,13 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
           <button
             key={f}
             className={`binder-filter-btn${statusFilter === f ? " active" : ""}`}
-            onClick={() => setStatusFilter(f)}
+            onClick={() => handleStatusFilter(f)}
           >
             {f.charAt(0).toUpperCase() + f.slice(1)}
           </button>
         ))}
         <span className="binder-filter-count">
-          {visible.length} binder{visible.length !== 1 ? "s" : ""}
+          {sorted.length} binder{sorted.length !== 1 ? "s" : ""}
         </span>
       </div>
 
@@ -383,6 +398,42 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
           ))}
         </tbody>
       </table>
+
+      <div className="binder-pagination">
+        <div className="binder-page-size-group">
+          <span className="binder-page-size-label">Show:</span>
+          {PAGE_SIZES.map((s) => (
+            <button
+              key={s}
+              className={`binder-page-size-btn${pageSize === s ? " active" : ""}`}
+              onClick={() => { setPageSize(s); setPage(1); }}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+        {totalPages > 1 && (
+          <div className="binder-page-nav">
+            <button
+              className="binder-page-btn"
+              onClick={() => setPage((p) => p - 1)}
+              disabled={safePage === 1}
+            >
+              ← Prev
+            </button>
+            <span className="binder-page-info">
+              Page {safePage} of {totalPages}
+            </span>
+            <button
+              className="binder-page-btn"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={safePage === totalPages}
+            >
+              Next →
+            </button>
+          </div>
+        )}
+      </div>
 
       {selectedBinder && (
         <BinderModal
