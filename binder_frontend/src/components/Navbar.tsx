@@ -42,6 +42,7 @@ export default function Navbar() {
           )}
           <Link to="/" className="navbar-link">Home</Link>
           <Link to="/proteins" className="navbar-link">Browse</Link>
+          <Link to="/structure-prep" className="navbar-link">Structure Prep</Link>
           <Link to="/about" className="navbar-link">About</Link>
           <a
             href="/api/docs"
