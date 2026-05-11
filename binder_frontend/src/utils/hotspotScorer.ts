@@ -1,4 +1,4 @@
-import type { ParsedResidue, ScoredResidue } from "../types";
+import type { ParsedResidue, ScoredResidue, ClusterGroup } from "../types";
 
 const NEIGHBOR_RADIUS = 8.0; // Å, Cα–Cα
 export const CLUSTER_RADIUS = 12.0; // Å, for spatial clustering bonus
@@ -122,6 +122,55 @@ export function rescoreWithWeights(
     ) / 1000;
     return { ...r, hotspotScore, isHotspot: hotspotScore > threshold };
   });
+}
+
+// BFS connected-components on the effective hotspot set within CLUSTER_RADIUS.
+// Clusters are ordered by size desc (largest first); singletons at the end.
+export function computeClusters(
+  residues: ScoredResidue[],
+  overrides: Record<string, boolean>
+): ClusterGroup[] {
+  const hotspots = residues.filter((r) => {
+    if (r.isLikelyDisordered) return false;
+    const k = `${r.chainId}:${r.resNum}`;
+    return k in overrides ? overrides[k] : r.isHotspot;
+  });
+
+  if (hotspots.length === 0) return [];
+
+  const n = hotspots.length;
+  const visited = new Array<boolean>(n).fill(false);
+  const rawGroups: ScoredResidue[][] = [];
+
+  for (let i = 0; i < n; i++) {
+    if (visited[i]) continue;
+    const group: ScoredResidue[] = [];
+    const queue = [i];
+    visited[i] = true;
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      group.push(hotspots[cur]);
+      for (let j = 0; j < n; j++) {
+        if (!visited[j] && dist(hotspots[cur], hotspots[j]) < CLUSTER_RADIUS) {
+          visited[j] = true;
+          queue.push(j);
+        }
+      }
+    }
+    rawGroups.push(group);
+  }
+
+  const clusterAvg = (rs: ScoredResidue[]) =>
+    rs.reduce((s, r) => s + r.hotspotScore, 0) / (rs.length || 1);
+
+  rawGroups.sort((a, b) => b.length - a.length || clusterAvg(b) - clusterAvg(a));
+
+  return rawGroups.map((members, i) => ({
+    clusterId: i + 1,
+    residues: [...members].sort((a, b) => b.hotspotScore - a.hotspotScore),
+    avgScore: Math.round(clusterAvg(members) * 1000) / 1000,
+    isSingleton: members.length === 1,
+  }));
 }
 
 export { DEFAULT_THRESHOLD as HOTSPOT_THRESHOLD };

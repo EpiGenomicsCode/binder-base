@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ScoredResidue } from "../types";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ScoredResidue, ClusterGroup } from "../types";
 import { parseStructure, detectStructureFormat } from "../utils/structureParser";
 import {
   scoreHotspots,
   reapplyThreshold,
   rescoreWithWeights,
+  computeClusters,
   generatePreviewPDB,
   generateAnnotatedPDB,
   generateBoltzGenYAML,
@@ -292,6 +293,9 @@ interface ResidueTableProps {
   chains: string[];
   overrides: Record<string, boolean>;
   onToggleOverride?: (key: string, current: boolean) => void;
+  showClusterView: boolean;
+  clusterGroups?: ClusterGroup[];
+  onToggleCluster?: (keys: string[], include: boolean) => void;
 }
 
 function ResidueTable({
@@ -299,6 +303,7 @@ function ResidueTable({
   showHotspotsOnly, onToggleHotspotsOnly,
   chainFilter, onChainFilter, chains,
   overrides, onToggleOverride,
+  showClusterView, clusterGroups, onToggleCluster,
 }: ResidueTableProps) {
   function sortIcon(key: SortKey) {
     if (sortKey !== key) return <span className="sort-icon">↕</span>;
@@ -326,112 +331,194 @@ function ResidueTable({
     });
   }, [residues, chainFilter, showHotspotsOnly, sortKey, sortDir, overrides]);
 
+  function renderResidueRow(r: ScoredResidue) {
+    const k = residueKey(r);
+    const effectiveHotspot = k in overrides ? overrides[k] : r.isHotspot;
+    const isOverridden = k in overrides;
+    return (
+      <tr
+        key={k}
+        className={
+          r.isLikelyDisordered
+            ? "sp-row-idr"
+            : effectiveHotspot
+            ? "sp-row-hotspot"
+            : ""
+        }
+      >
+        <td>{r.chainId}</td>
+        <td>{r.resNum}{r.insertionCode}</td>
+        <td>{r.resName}</td>
+        <td>
+          <span className={`sp-ss-pill ${secStructClass(r.secStruct)}`}>
+            {secStructLabel(r.secStruct)}
+          </span>
+        </td>
+        <td>{pct(r.exposureScore)}</td>
+        <td>{r.bFactor.toFixed(1)}</td>
+        <td>
+          {r.isLikelyDisordered ? (
+            <span className="sp-score-val" style={{ color: "var(--gray-text)" }}>—</span>
+          ) : (
+            <div className="sp-score-cell">
+              <div className="sp-score-bar" style={{ width: pct(r.hotspotScore) }} />
+              <span className="sp-score-val">{r.hotspotScore.toFixed(2)}</span>
+            </div>
+          )}
+        </td>
+        <td>
+          {r.isLikelyDisordered ? null : (
+            <span
+              className={`sp-hotspot-badge ${effectiveHotspot ? "sp-hotspot-yes" : "sp-hotspot-no"}`}
+            >
+              {effectiveHotspot ? "Yes" : "No"}
+              {isOverridden ? " *" : ""}
+            </span>
+          )}
+        </td>
+        <td>
+          {r.isLikelyDisordered && (
+            <span className="sp-idr-badge">IDR</span>
+          )}
+        </td>
+        <td>
+          {!r.isLikelyDisordered && (
+            <button
+              className={`sp-override-toggle ${isOverridden ? "sp-override-active" : ""}`}
+              onClick={() => onToggleOverride?.(k, effectiveHotspot)}
+              title={isOverridden ? "Remove override" : "Override hotspot assignment"}
+            >
+              {isOverridden ? "Reset" : effectiveHotspot ? "Exclude" : "Include"}
+            </button>
+          )}
+        </td>
+      </tr>
+    );
+  }
+
+  const clusterCount = clusterGroups ? clusterGroups.filter((cg) => !cg.isSingleton).length : 0;
+  const totalClusterResidues = clusterGroups
+    ? clusterGroups.reduce((n, cg) => n + cg.residues.length, 0)
+    : 0;
+
   return (
     <div className="sp-residue-table-wrap">
       <div className="sp-table-filters">
-        <select
-          value={chainFilter}
-          onChange={(e) => onChainFilter(e.target.value)}
-          className="sp-chain-select"
-        >
-          <option value="all">All chains</option>
-          {chains.map((c) => (
-            <option key={c} value={c}>Chain {c}</option>
-          ))}
-        </select>
-        <label className="sp-hotspot-filter-label">
-          <input type="checkbox" checked={showHotspotsOnly} onChange={onToggleHotspotsOnly} />
-          Hotspots only
-        </label>
-        <span className="sp-table-count">{displayed.length} residues</span>
+        {!showClusterView && (
+          <select
+            value={chainFilter}
+            onChange={(e) => onChainFilter(e.target.value)}
+            className="sp-chain-select"
+          >
+            <option value="all">All chains</option>
+            {chains.map((c) => (
+              <option key={c} value={c}>Chain {c}</option>
+            ))}
+          </select>
+        )}
+        {!showClusterView && (
+          <label className="sp-hotspot-filter-label">
+            <input type="checkbox" checked={showHotspotsOnly} onChange={onToggleHotspotsOnly} />
+            Hotspots only
+          </label>
+        )}
+        {showClusterView && clusterGroups && (
+          <span className="sp-cluster-summary-text">
+            {clusterCount} cluster{clusterCount !== 1 ? "s" : ""} · {totalClusterResidues} hotspot residues · sorted by size
+          </span>
+        )}
+        {!showClusterView && (
+          <span className="sp-table-count">{displayed.length} residues</span>
+        )}
       </div>
       <div className="sp-table-scroll">
         <table className="sp-residue-table">
           <thead>
             <tr>
-              <th onClick={() => onSort("chain")} className="sp-th-sortable">Chain {sortIcon("chain")}</th>
-              <th onClick={() => onSort("resnum")} className="sp-th-sortable">Res# {sortIcon("resnum")}</th>
-              <th>Name</th>
-              <th>2° Struct</th>
-              <th onClick={() => onSort("exposure")} className="sp-th-sortable">Exposure {sortIcon("exposure")}</th>
-              <th onClick={() => onSort("bfactor")} className="sp-th-sortable">B/pLDDT {sortIcon("bfactor")}</th>
-              <th onClick={() => onSort("score")} className="sp-th-sortable">Score {sortIcon("score")}</th>
-              <th>Hotspot</th>
-              <th>Disorder</th>
-              <th>Override</th>
+              {showClusterView ? (
+                <>
+                  <th className="sp-th-dim">Chain</th>
+                  <th className="sp-th-dim">Res#</th>
+                  <th className="sp-th-dim">Name</th>
+                  <th className="sp-th-dim">2° Struct</th>
+                  <th className="sp-th-dim">Exposure</th>
+                  <th className="sp-th-dim">B/pLDDT</th>
+                  <th className="sp-th-dim">Score</th>
+                  <th className="sp-th-dim">Hotspot</th>
+                  <th className="sp-th-dim">Disorder</th>
+                  <th className="sp-th-dim">Override</th>
+                </>
+              ) : (
+                <>
+                  <th onClick={() => onSort("chain")} className="sp-th-sortable">Chain {sortIcon("chain")}</th>
+                  <th onClick={() => onSort("resnum")} className="sp-th-sortable">Res# {sortIcon("resnum")}</th>
+                  <th>Name</th>
+                  <th>2° Struct</th>
+                  <th onClick={() => onSort("exposure")} className="sp-th-sortable">Exposure {sortIcon("exposure")}</th>
+                  <th onClick={() => onSort("bfactor")} className="sp-th-sortable">B/pLDDT {sortIcon("bfactor")}</th>
+                  <th onClick={() => onSort("score")} className="sp-th-sortable">Score {sortIcon("score")}</th>
+                  <th>Hotspot</th>
+                  <th>Disorder</th>
+                  <th>Override</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
-            {displayed.map((r) => {
-              const k = residueKey(r);
-              const effectiveHotspot = k in overrides ? overrides[k] : r.isHotspot;
-              const isOverridden = k in overrides;
-              return (
-                <tr
-                  key={k}
-                  className={
-                    r.isLikelyDisordered
-                      ? "sp-row-idr"
-                      : effectiveHotspot
-                      ? "sp-row-hotspot"
-                      : ""
-                  }
-                >
-                  <td>{r.chainId}</td>
-                  <td>{r.resNum}{r.insertionCode}</td>
-                  <td>{r.resName}</td>
-                  <td>
-                    <span className={`sp-ss-pill ${secStructClass(r.secStruct)}`}>
-                      {secStructLabel(r.secStruct)}
-                    </span>
-                  </td>
-                  <td>{pct(r.exposureScore)}</td>
-                  <td>{r.bFactor.toFixed(1)}</td>
-                  <td>
-                    {r.isLikelyDisordered ? (
-                      <span className="sp-score-val" style={{ color: "var(--gray-text)" }}>—</span>
-                    ) : (
-                      <div className="sp-score-cell">
-                        <div className="sp-score-bar" style={{ width: pct(r.hotspotScore) }} />
-                        <span className="sp-score-val">{r.hotspotScore.toFixed(2)}</span>
-                      </div>
-                    )}
-                  </td>
-                  <td>
-                    {r.isLikelyDisordered ? null : (
-                      <span
-                        className={`sp-hotspot-badge ${effectiveHotspot ? "sp-hotspot-yes" : "sp-hotspot-no"}`}
-                      >
-                        {effectiveHotspot ? "Yes" : "No"}
-                        {isOverridden ? " *" : ""}
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    {r.isLikelyDisordered && (
-                      <span className="sp-idr-badge">IDR</span>
-                    )}
-                  </td>
-                  <td>
-                    {!r.isLikelyDisordered && (
-                      <button
-                        className={`sp-override-toggle ${isOverridden ? "sp-override-active" : ""}`}
-                        onClick={() => onToggleOverride?.(k, effectiveHotspot)}
-                        title={isOverridden ? "Remove override" : "Override hotspot assignment"}
-                      >
-                        {isOverridden ? "Reset" : effectiveHotspot ? "Exclude" : "Include"}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {displayed.length === 0 && (
-              <tr>
-                <td colSpan={10} className="sp-table-empty">
-                  No residues match the current filter.
-                </td>
-              </tr>
+            {showClusterView && clusterGroups ? (
+              <>
+                {clusterGroups.map((cg) => {
+                  const allKeys = cg.residues.map((r) => residueKey(r));
+                  return (
+                    <React.Fragment key={`cluster-${cg.clusterId}`}>
+                      <tr className={`sp-cluster-header${cg.isSingleton ? " sp-cluster-singleton" : ""}`}>
+                        <td colSpan={10} className="sp-cluster-header-cell">
+                          <span className="sp-cluster-label">
+                            {cg.isSingleton ? "Isolated" : `Cluster ${cg.clusterId}`}
+                            <span className="sp-cluster-meta">
+                              {" · "}{cg.residues.length} residue{cg.residues.length !== 1 ? "s" : ""}
+                              {" · "}avg {cg.avgScore.toFixed(2)}
+                            </span>
+                          </span>
+                          <div className="sp-cluster-actions">
+                            <button
+                              className="sp-cluster-btn sp-cluster-btn-include"
+                              onClick={() => onToggleCluster?.(allKeys, true)}
+                            >
+                              Include all
+                            </button>
+                            <button
+                              className="sp-cluster-btn sp-cluster-btn-exclude"
+                              onClick={() => onToggleCluster?.(allKeys, false)}
+                            >
+                              Exclude all
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {cg.residues.map((r) => renderResidueRow(r))}
+                    </React.Fragment>
+                  );
+                })}
+                {clusterGroups.length === 0 && (
+                  <tr>
+                    <td colSpan={10} className="sp-table-empty">
+                      No hotspots to cluster.
+                    </td>
+                  </tr>
+                )}
+              </>
+            ) : (
+              <>
+                {displayed.map((r) => renderResidueRow(r))}
+                {displayed.length === 0 && (
+                  <tr>
+                    <td colSpan={10} className="sp-table-empty">
+                      No residues match the current filter.
+                    </td>
+                  </tr>
+                )}
+              </>
             )}
           </tbody>
         </table>
@@ -615,6 +702,7 @@ interface PrepareStepProps {
   overrides: Record<string, boolean>;
   onToggleOverride: (key: string, current: boolean) => void;
   onClearOverrides: () => void;
+  onToggleCluster: (keys: string[], include: boolean) => void;
   threshold: number;
   onThresholdChange: (v: number) => void;
   weights: FormulaWeights;
@@ -637,7 +725,7 @@ interface PrepareStepProps {
 function PrepareStep({
   annotatedUrl, fileName, residues, chains, isAlphaFold,
   selectedChains, onChainToggle,
-  overrides, onToggleOverride, onClearOverrides,
+  overrides, onToggleOverride, onClearOverrides, onToggleCluster,
   threshold, onThresholdChange,
   weights, onWeightsChange,
   clusterWeight, onClusterWeightChange,
@@ -647,6 +735,8 @@ function PrepareStep({
   methodologyOpen, onToggleMethodology,
   onReset, onNext,
 }: PrepareStepProps) {
+  const [showClusterView, setShowClusterView] = useState(false);
+
   const effectiveHotspotCount = residues.filter((r) => {
     const k = residueKey(r);
     return k in overrides ? overrides[k] : r.isHotspot;
@@ -654,6 +744,22 @@ function PrepareStep({
   const idrCount = residues.filter((r) => r.isLikelyDisordered).length;
   const overrideCount = Object.keys(overrides).length;
   const canProceed = effectiveHotspotCount > 0 && selectedChains.size > 0;
+
+  const clusterGroups = useMemo(
+    () => showClusterView ? computeClusters(residues, overrides) : undefined,
+    [residues, overrides, showClusterView]
+  );
+
+  const clusterMap = useMemo<Map<string, number> | undefined>(() => {
+    if (!showClusterView || !clusterGroups) return undefined;
+    const m = new Map<string, number>();
+    for (const cg of clusterGroups) {
+      for (const r of cg.residues) {
+        m.set(residueKey(r), cg.clusterId);
+      }
+    }
+    return m;
+  }, [showClusterView, clusterGroups]);
 
   const chainResCount = useMemo(() => {
     const m: Record<string, number> = {};
@@ -731,7 +837,8 @@ function PrepareStep({
           <HotspotViewer
             fileUrl={annotatedUrl}
             format="pdb"
-            label="Hotspot scores (orange/red = hotspot, blue = non-hotspot)"
+            label={showClusterView ? "Cluster view (each color = one spatial cluster)" : "Hotspot scores (orange/red = hotspot, blue = non-hotspot)"}
+            clusterMap={clusterMap}
           />
         </div>
         <div className="sp-sidebar">
@@ -768,22 +875,53 @@ function PrepareStep({
           </div>
           <div className="sp-sidebar-section">
             <div className="sp-sidebar-label">Color key</div>
-            <div className="sp-legend">
-              <div className="sp-legend-row">
-                <span className="sp-legend-swatch" style={{ background: "#bf2222" }} />
-                Hotspot (high score)
+            {showClusterView && clusterGroups ? (
+              <div className="sp-legend">
+                {clusterGroups.map((cg) => {
+                  const PALETTE = ["#e6194b","#4363d8","#3cb44b","#f58231","#911eb4","#42d4f4","#f032e6","#a9a9a9"];
+                  const color = PALETTE[(cg.clusterId - 1) % PALETTE.length];
+                  return (
+                    <div key={cg.clusterId} className="sp-legend-row">
+                      <span className="sp-legend-swatch" style={{ background: color }} />
+                      {cg.isSingleton ? "Isolated" : `Cluster ${cg.clusterId}`}
+                      <span className="sp-cluster-meta"> · {cg.residues.length} res</span>
+                    </div>
+                  );
+                })}
+                <div className="sp-legend-row">
+                  <span className="sp-legend-swatch" style={{ background: "#d0d0d0" }} />
+                  Non-hotspot
+                </div>
               </div>
-              <div className="sp-legend-row">
-                <span className="sp-legend-swatch" style={{ background: "#adbff3" }} />
-                Surface (lower score)
+            ) : (
+              <div className="sp-legend">
+                <div className="sp-legend-row">
+                  <span className="sp-legend-swatch" style={{ background: "#bf2222" }} />
+                  Hotspot (high score)
+                </div>
+                <div className="sp-legend-row">
+                  <span className="sp-legend-swatch" style={{ background: "#adbff3" }} />
+                  Surface (lower score)
+                </div>
+                <div className="sp-legend-row">
+                  <span className="sp-legend-swatch" style={{ background: "#3361e1" }} />
+                  Buried / IDR (score = 0)
+                </div>
               </div>
-              <div className="sp-legend-row">
-                <span className="sp-legend-swatch" style={{ background: "#3361e1" }} />
-                Buried / IDR (score = 0)
-              </div>
-            </div>
+            )}
           </div>
         </div>
+      </div>
+
+      <div className="sp-table-view-toggle">
+        <label className="sp-hotspot-filter-label">
+          <input
+            type="checkbox"
+            checked={showClusterView}
+            onChange={() => setShowClusterView((v) => !v)}
+          />
+          Group by spatial cluster
+        </label>
       </div>
 
       <ResidueTable
@@ -798,6 +936,9 @@ function PrepareStep({
         chains={chains}
         overrides={overrides}
         onToggleOverride={onToggleOverride}
+        showClusterView={showClusterView}
+        clusterGroups={clusterGroups}
+        onToggleCluster={onToggleCluster}
       />
     </div>
   );
@@ -1110,6 +1251,24 @@ export default function StructurePrep() {
     refreshAnnotatedUrl(residues, {});
   }
 
+  function handleToggleCluster(keys: string[], include: boolean) {
+    setOverrides((prev) => {
+      const next = { ...prev };
+      for (const key of keys) {
+        const original = residues.find((r) => residueKey(r) === key);
+        if (include) {
+          if (original?.isHotspot) delete next[key];
+          else next[key] = true;
+        } else {
+          if (original && !original.isHotspot) delete next[key];
+          else next[key] = false;
+        }
+      }
+      refreshAnnotatedUrl(residues, next);
+      return next;
+    });
+  }
+
   useEffect(() => {
     prevFileUrl.current = fileUrl;
     return () => {
@@ -1150,6 +1309,7 @@ export default function StructurePrep() {
             overrides={overrides}
             onToggleOverride={handleToggleOverride}
             onClearOverrides={handleClearOverrides}
+            onToggleCluster={handleToggleCluster}
             threshold={threshold}
             onThresholdChange={handleThresholdChange}
             weights={weights}

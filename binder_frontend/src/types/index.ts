@@ -60,6 +60,13 @@ export interface ParsedResidue {
   secStruct: "H" | "E" | "C";
 }
 
+export interface ClusterGroup {
+  clusterId: number;
+  residues: ScoredResidue[];
+  avgScore: number;
+  isSingleton: boolean;
+}
+
 export interface ScoredResidue extends ParsedResidue {
   neighborCount: number;
   exposureScore: number;

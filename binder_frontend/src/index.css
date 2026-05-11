@@ -1592,6 +1592,97 @@ dd { margin: 0; word-break: break-word; }
   padding: 1.5rem !important;
 }
 
+/* Cluster view toggle above table */
+.sp-table-view-toggle {
+  margin-bottom: 0.5rem;
+}
+
+/* Cluster header rows in table */
+.sp-cluster-header > td {
+  background: var(--teal-light);
+  border-top: 2px solid var(--teal-mid);
+  padding: 0 !important;
+}
+
+.sp-cluster-header-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+}
+
+.sp-cluster-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--navy);
+}
+
+.sp-cluster-meta {
+  font-weight: 400;
+  color: var(--gray-text);
+  font-size: 0.76rem;
+}
+
+.sp-cluster-singleton > td {
+  background: #f8f8fb;
+  border-top-color: var(--gray-border);
+}
+
+.sp-cluster-singleton .sp-cluster-label {
+  color: var(--gray-text);
+  font-weight: 500;
+}
+
+.sp-cluster-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.sp-cluster-btn {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 4px;
+  border: 1px solid;
+  cursor: pointer;
+  line-height: 1.4;
+  background: transparent;
+}
+
+.sp-cluster-btn-include {
+  background: var(--teal-light);
+  border-color: var(--teal-mid);
+  color: var(--teal);
+}
+
+.sp-cluster-btn-include:hover {
+  background: var(--teal-mid);
+}
+
+.sp-cluster-btn-exclude {
+  background: #fff0f0;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+.sp-cluster-btn-exclude:hover {
+  background: #fee2e2;
+}
+
+/* Dim sort headers when cluster view is active */
+.sp-th-dim {
+  color: var(--gray-text);
+  font-weight: 500;
+  cursor: default;
+}
+
+/* Summary text shown in filter bar during cluster view */
+.sp-cluster-summary-text {
+  font-size: 0.78rem;
+  color: var(--gray-text);
+}
+
 /* Secondary structure pills */
 .sp-ss-pill {
   display: inline-block;
