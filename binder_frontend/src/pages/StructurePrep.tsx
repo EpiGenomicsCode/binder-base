@@ -17,7 +17,7 @@ import type { FormulaWeights } from "../utils/hotspotScorer";
 import HotspotViewer from "../components/HotspotViewer";
 
 type WizardStep = "upload" | "prepare" | "export";
-type SortKey = "score" | "bfactor" | "exposure" | "resnum" | "chain";
+type SortKey = "score" | "bfactor" | "exposure" | "resnum" | "chain" | "hydrophobicity" | "charge";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -50,11 +50,13 @@ function MethodologyPanel({ isAlphaFold, open, onToggle, weights, clusterWeight 
   weights: FormulaWeights;
   clusterWeight: number;
 }) {
-  const wSum = weights.exposure + weights.rigidity + weights.loop || 1;
+  const wSum = weights.exposure + weights.rigidity + weights.loop + weights.hydrophobicity + weights.charge || 1;
   const indScale = 1 - clusterWeight;
   const expPct = Math.round((weights.exposure / wSum) * indScale * 100);
   const rigPct = Math.round((weights.rigidity / wSum) * indScale * 100);
   const loopPct = Math.round((weights.loop / wSum) * indScale * 100);
+  const hydPct = Math.round((weights.hydrophobicity / wSum) * indScale * 100);
+  const chgPct = Math.round((weights.charge / wSum) * indScale * 100);
   const clusterPct = Math.round(clusterWeight * 100);
 
   return (
@@ -67,8 +69,10 @@ function MethodologyPanel({ isAlphaFold, open, onToggle, weights, clusterWeight 
         <div className="sp-methodology-body">
           <div className="sp-methodology-factor">
             <strong>Surface exposure ({expPct}%)</strong>
-            Counts Cα atoms within 8 Å of each residue. Fewer neighbors means the residue
-            is more surface-exposed and accessible to a binder.
+            Counts Cα atoms within 14 Å of each residue. This range captures burial depth:
+            residues enclosed inside hollow protein architectures (e.g. barrel cavities)
+            accumulate many distant contacts and score as buried, while surface residues
+            facing solvent have fewer contacts and score as exposed.
           </div>
           <div className="sp-methodology-factor">
             <strong>Structural order ({rigPct}%)</strong>
@@ -80,6 +84,16 @@ function MethodologyPanel({ isAlphaFold, open, onToggle, weights, clusterWeight 
             <strong>Secondary structure ({loopPct}%)</strong>
             Loops and coils are statistically more surface-accessible than helices or
             β-strands, and are geometrically more flexible for binder engagement.
+          </div>
+          <div className="sp-methodology-factor">
+            <strong>Hydrophobicity ({hydPct}%)</strong>
+            Kyte–Doolittle scale normalized to 0–1 (Arg = 0, Ile = 1). Hydrophobic surface
+            patches drive non-polar contact energy and are high-affinity binder targets.
+          </div>
+          <div className="sp-methodology-factor">
+            <strong>Charge ({chgPct}%)</strong>
+            Charged anchor score: Arg/Lys/Asp/Glu = 1.0, His = 0.5, all others = 0.
+            Charged surface residues provide specific electrostatic contacts for binder engagement.
           </div>
           <div className="sp-methodology-factor">
             <strong>Spatial clustering ({clusterPct}%)</strong>
@@ -221,10 +235,12 @@ function FormulaWeightsPanel({
   clusterWeight: number;
   onClusterWeightChange: (v: number) => void;
 }) {
-  const wSum = weights.exposure + weights.rigidity + weights.loop || 1;
+  const wSum = weights.exposure + weights.rigidity + weights.loop + weights.hydrophobicity + weights.charge || 1;
   const expPct = Math.round((weights.exposure / wSum) * 100);
   const rigPct = Math.round((weights.rigidity / wSum) * 100);
-  const loopPct = 100 - expPct - rigPct;
+  const loopPct = Math.round((weights.loop / wSum) * 100);
+  const hydPct = Math.round((weights.hydrophobicity / wSum) * 100);
+  const chgPct = 100 - expPct - rigPct - loopPct - hydPct;
 
   return (
     <div className="sp-formula-panel">
@@ -260,6 +276,28 @@ function FormulaWeightsPanel({
           min={0} max={1} step={0.05}
           value={weights.loop}
           onChange={(e) => onChange({ ...weights, loop: parseFloat(e.target.value) })}
+        />
+      </div>
+      <div className="sp-formula-row">
+        <span className="sp-formula-label">Hydrophobicity</span>
+        <span className="sp-formula-pct">{hydPct}%</span>
+        <input
+          type="range"
+          className="sp-formula-slider"
+          min={0} max={1} step={0.05}
+          value={weights.hydrophobicity}
+          onChange={(e) => onChange({ ...weights, hydrophobicity: parseFloat(e.target.value) })}
+        />
+      </div>
+      <div className="sp-formula-row">
+        <span className="sp-formula-label">Charge</span>
+        <span className="sp-formula-pct">{chgPct}%</span>
+        <input
+          type="range"
+          className="sp-formula-slider"
+          min={0} max={1} step={0.05}
+          value={weights.charge}
+          onChange={(e) => onChange({ ...weights, charge: parseFloat(e.target.value) })}
         />
       </div>
       <div className="sp-formula-separator" />
@@ -324,6 +362,8 @@ function ResidueTable({
       if (sortKey === "score") cmp = a.hotspotScore - b.hotspotScore;
       else if (sortKey === "bfactor") cmp = a.bFactor - b.bFactor;
       else if (sortKey === "exposure") cmp = a.exposureScore - b.exposureScore;
+      else if (sortKey === "hydrophobicity") cmp = a.hydrophobicityScore - b.hydrophobicityScore;
+      else if (sortKey === "charge") cmp = a.chargeScore - b.chargeScore;
       else if (sortKey === "resnum") cmp = a.resNum - b.resNum;
       else if (sortKey === "chain")
         cmp = a.chainId.localeCompare(b.chainId) || a.resNum - b.resNum;
@@ -355,6 +395,8 @@ function ResidueTable({
           </span>
         </td>
         <td>{pct(r.exposureScore)}</td>
+        <td>{pct(r.hydrophobicityScore)}</td>
+        <td>{pct(r.chargeScore)}</td>
         <td>{r.bFactor.toFixed(1)}</td>
         <td>
           {r.isLikelyDisordered ? (
@@ -442,6 +484,8 @@ function ResidueTable({
                   <th className="sp-th-dim">Name</th>
                   <th className="sp-th-dim">2° Struct</th>
                   <th className="sp-th-dim">Exposure</th>
+                  <th className="sp-th-dim">Hydrophob</th>
+                  <th className="sp-th-dim">Charge</th>
                   <th className="sp-th-dim">B/pLDDT</th>
                   <th className="sp-th-dim">Score</th>
                   <th className="sp-th-dim">Hotspot</th>
@@ -455,6 +499,8 @@ function ResidueTable({
                   <th>Name</th>
                   <th>2° Struct</th>
                   <th onClick={() => onSort("exposure")} className="sp-th-sortable">Exposure {sortIcon("exposure")}</th>
+                  <th onClick={() => onSort("hydrophobicity")} className="sp-th-sortable">Hydrophob {sortIcon("hydrophobicity")}</th>
+                  <th onClick={() => onSort("charge")} className="sp-th-sortable">Charge {sortIcon("charge")}</th>
                   <th onClick={() => onSort("bfactor")} className="sp-th-sortable">B/pLDDT {sortIcon("bfactor")}</th>
                   <th onClick={() => onSort("score")} className="sp-th-sortable">Score {sortIcon("score")}</th>
                   <th>Hotspot</th>
@@ -472,7 +518,7 @@ function ResidueTable({
                   return (
                     <React.Fragment key={`cluster-${cg.clusterId}`}>
                       <tr className={`sp-cluster-header${cg.isSingleton ? " sp-cluster-singleton" : ""}`}>
-                        <td colSpan={10} className="sp-cluster-header-cell">
+                        <td colSpan={12} className="sp-cluster-header-cell">
                           <span className="sp-cluster-label">
                             {cg.isSingleton ? "Isolated" : `Cluster ${cg.clusterId}`}
                             <span className="sp-cluster-meta">
@@ -502,7 +548,7 @@ function ResidueTable({
                 })}
                 {clusterGroups.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="sp-table-empty">
+                    <td colSpan={12} className="sp-table-empty">
                       No hotspots to cluster.
                     </td>
                   </tr>
@@ -513,7 +559,7 @@ function ResidueTable({
                 {displayed.map((r) => renderResidueRow(r))}
                 {displayed.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="sp-table-empty">
+                    <td colSpan={12} className="sp-table-empty">
                       No residues match the current filter.
                     </td>
                   </tr>
