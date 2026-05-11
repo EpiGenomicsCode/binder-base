@@ -47,3 +47,40 @@ export interface ProteinDetail extends Protein {
   updated_at: string;
   runs: BinderRun[];
 }
+
+export interface ParsedResidue {
+  chainId: string;
+  resNum: number;
+  insertionCode: string;
+  resName: string;
+  x: number;
+  y: number;
+  z: number;
+  bFactor: number;
+  secStruct: "H" | "E" | "C";
+}
+
+export interface ClusterGroup {
+  clusterId: number;
+  residues: ScoredResidue[];
+  avgScore: number;
+  isSingleton: boolean;
+}
+
+export interface ScoredResidue extends ParsedResidue {
+  neighborCount: number;
+  exposureScore: number;
+  normalizedB: number;
+  rigidityScore: number;
+  rawClusterDensity: number;
+  hotspotScore: number;
+  isHotspot: boolean;
+  isLikelyDisordered: boolean;
+}
+
+export interface ParsedStructure {
+  format: "mmcif" | "pdb";
+  chains: string[];
+  residues: ParsedResidue[];
+  isAlphaFold: boolean;
+}
