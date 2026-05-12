@@ -1,17 +1,44 @@
 import type { ParsedResidue, ScoredResidue, ClusterGroup } from "../types";
 
-const NEIGHBOR_RADIUS = 8.0; // Å, Cα–Cα
-export const CLUSTER_RADIUS = 12.0; // Å, for spatial clustering bonus
+const NEIGHBOR_RADIUS = 8.0;   // Å, Cα–Cα — kept for neighborCount display
+// 14 Å captures burial depth rather than local packing: residues enclosed in hollow
+// protein architectures (beta-barrels, TIM barrels) accumulate many contacts from the
+// surrounding shell and score as buried. At 8 Å the barrel cavity is locally sparse,
+// incorrectly making interior residues appear surface-exposed.
+const EXPOSURE_RADIUS = 14.0;  // Å, Cα–Cα — for exposureScore calculation
+export const CLUSTER_RADIUS = 12.0; // Å, for spatial clustering density bonus
+// Smaller radius for BFS grouping prevents the entire contiguous barrel surface of hollow
+// proteins (GFP, porins) from collapsing into one cluster. Non-hotspot gaps at 8 Å break
+// the chain between distinct surface patches that would merge at 12 Å.
+const BFS_CLUSTER_RADIUS = 8.0;    // Å, for computeClusters connectivity only
 const PLDDT_IDR_THRESHOLD = 70; // AlphaFold: below this = likely IDR
 const DEFAULT_THRESHOLD = 0.60; // raised from 0.55
+
+// Kyte–Doolittle hydrophobicity, normalized to [0, 1] (Arg = 0, Ile = 1).
+// Hydrophobic surface patches drive non-polar contact energy; high score = better binder target.
+const KD_HYDROPHOBICITY: Record<string, number> = {
+  ILE: 1.000, VAL: 0.967, LEU: 0.922, PHE: 0.811, CYS: 0.778, MET: 0.711, ALA: 0.700,
+  GLY: 0.456, THR: 0.422, SER: 0.411, TRP: 0.400, TYR: 0.356, PRO: 0.322,
+  HIS: 0.144, GLU: 0.111, GLN: 0.111, ASP: 0.111, ASN: 0.111, LYS: 0.067, ARG: 0.000,
+};
+
+// Charged anchor score: charged surface residues provide specific electrostatic contacts.
+// Sign is omitted — binder design matches polarity via complementary charges.
+const CHARGE_SCORE: Record<string, number> = {
+  ARG: 1.0, LYS: 1.0, ASP: 1.0, GLU: 1.0, HIS: 0.5,
+};
 
 export interface FormulaWeights {
   exposure: number;
   rigidity: number;
   loop: number;
+  hydrophobicity: number;
+  charge: number;
 }
 
-export const DEFAULT_WEIGHTS: FormulaWeights = { exposure: 0.4, rigidity: 0.3, loop: 0.3 };
+export const DEFAULT_WEIGHTS: FormulaWeights = {
+  exposure: 0.35, rigidity: 0.20, loop: 0.20, hydrophobicity: 0.15, charge: 0.10,
+};
 export const DEFAULT_CLUSTER_WEIGHT = 0.2;
 
 function dist(a: ParsedResidue, b: ParsedResidue): number {
@@ -31,30 +58,37 @@ export function scoreHotspots(
   if (residues.length === 0) return [];
 
   // Heavy step: neighbor density (O(n²)), runs once on upload.
-  // Single merged loop computes both 8 Å neighbor counts (exposure) and 12 Å cluster counts.
+  // Single merged loop computes 8 Å neighbor counts (neighborCount display),
+  // 14 Å exposure counts (burial depth proxy), and 12 Å cluster counts.
   const counts = new Array<number>(residues.length).fill(0);
+  const exposureCounts = new Array<number>(residues.length).fill(0);
   const clusterCounts = new Array<number>(residues.length).fill(0);
   for (let i = 0; i < residues.length; i++) {
     for (let j = i + 1; j < residues.length; j++) {
       const d = dist(residues[i], residues[j]);
       if (d < NEIGHBOR_RADIUS) { counts[i]++; counts[j]++; }
+      if (d < EXPOSURE_RADIUS) { exposureCounts[i]++; exposureCounts[j]++; }
       if (d < CLUSTER_RADIUS)  { clusterCounts[i]++; clusterCounts[j]++; }
     }
   }
-  const maxCount = Math.max(...counts) || 1;
+  const maxExposureCount = Math.max(...exposureCounts) || 1;
   const maxClusterCount = Math.max(...clusterCounts) || 1;
 
   const bFactors = residues.map((r) => r.bFactor);
   const bMin = Math.min(...bFactors);
   const bRange = (Math.max(...bFactors) - bMin) || 1;
 
-  const wSum = weights.exposure + weights.rigidity + weights.loop || 1;
+  const wSum = weights.exposure + weights.rigidity + weights.loop + weights.hydrophobicity + weights.charge || 1;
   const wE = weights.exposure / wSum;
   const wR = weights.rigidity / wSum;
   const wL = weights.loop / wSum;
+  const wH = weights.hydrophobicity / wSum;
+  const wC = weights.charge / wSum;
 
   return residues.map((r, i) => {
-    const exposureScore = 1 - counts[i] / maxCount;
+    const exposureScore = 1 - exposureCounts[i] / maxExposureCount;
+    const hydrophobicityScore = KD_HYDROPHOBICITY[r.resName] ?? 0.5;
+    const chargeScore = CHARGE_SCORE[r.resName] ?? 0;
     const isLoop = r.secStruct === "C";
     const rawClusterDensity = clusterCounts[i] / maxClusterCount;
 
@@ -72,7 +106,8 @@ export function scoreHotspots(
       rigidityScore = 1 - normalizedB;
     }
 
-    const individualScore = wE * exposureScore + wR * rigidityScore + wL * (isLoop ? 1 : 0);
+    const individualScore = wE * exposureScore + wR * rigidityScore + wL * (isLoop ? 1 : 0)
+                          + wH * hydrophobicityScore + wC * chargeScore;
     const hotspotScore = isLikelyDisordered
       ? 0
       : Math.round(
@@ -85,6 +120,8 @@ export function scoreHotspots(
       exposureScore: Math.round(exposureScore * 1000) / 1000,
       normalizedB: Math.round(normalizedB * 1000) / 1000,
       rigidityScore: Math.round(rigidityScore * 1000) / 1000,
+      hydrophobicityScore: Math.round(hydrophobicityScore * 1000) / 1000,
+      chargeScore: Math.round(chargeScore * 1000) / 1000,
       rawClusterDensity: Math.round(rawClusterDensity * 1000) / 1000,
       hotspotScore,
       isHotspot: !isLikelyDisordered && hotspotScore > threshold,
@@ -108,15 +145,18 @@ export function rescoreWithWeights(
   clusterWeight: number,
   threshold: number
 ): ScoredResidue[] {
-  const wSum = weights.exposure + weights.rigidity + weights.loop || 1;
+  const wSum = weights.exposure + weights.rigidity + weights.loop + weights.hydrophobicity + weights.charge || 1;
   const wE = weights.exposure / wSum;
   const wR = weights.rigidity / wSum;
   const wL = weights.loop / wSum;
+  const wH = weights.hydrophobicity / wSum;
+  const wC = weights.charge / wSum;
 
   return residues.map((r) => {
     if (r.isLikelyDisordered) return r;
     const isLoop = r.secStruct === "C";
-    const individualScore = wE * r.exposureScore + wR * r.rigidityScore + wL * (isLoop ? 1 : 0);
+    const individualScore = wE * r.exposureScore + wR * r.rigidityScore + wL * (isLoop ? 1 : 0)
+                          + wH * r.hydrophobicityScore + wC * r.chargeScore;
     const hotspotScore = Math.round(
       ((1 - clusterWeight) * individualScore + clusterWeight * r.rawClusterDensity) * 1000
     ) / 1000;
@@ -124,7 +164,7 @@ export function rescoreWithWeights(
   });
 }
 
-// BFS connected-components on the effective hotspot set within CLUSTER_RADIUS.
+// BFS connected-components on the effective hotspot set within BFS_CLUSTER_RADIUS.
 // Clusters are ordered by size desc (largest first); singletons at the end.
 export function computeClusters(
   residues: ScoredResidue[],
@@ -151,7 +191,7 @@ export function computeClusters(
       const cur = queue.shift()!;
       group.push(hotspots[cur]);
       for (let j = 0; j < n; j++) {
-        if (!visited[j] && dist(hotspots[cur], hotspots[j]) < CLUSTER_RADIUS) {
+        if (!visited[j] && dist(hotspots[cur], hotspots[j]) < BFS_CLUSTER_RADIUS) {
           visited[j] = true;
           queue.push(j);
         }

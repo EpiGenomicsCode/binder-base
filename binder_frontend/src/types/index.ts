@@ -72,6 +72,8 @@ export interface ScoredResidue extends ParsedResidue {
   exposureScore: number;
   normalizedB: number;
   rigidityScore: number;
+  hydrophobicityScore: number;
+  chargeScore: number;
   rawClusterDensity: number;
   hotspotScore: number;
   isHotspot: boolean;

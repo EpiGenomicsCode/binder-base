@@ -2034,7 +2034,7 @@ dd { margin: 0; word-break: break-word; }
 
 .sp-formula-row {
   display: grid;
-  grid-template-columns: 4.5rem 2rem 1fr;
+  grid-template-columns: 7rem 2.5rem 1fr;
   align-items: center;
   gap: 0.4rem;
 }
