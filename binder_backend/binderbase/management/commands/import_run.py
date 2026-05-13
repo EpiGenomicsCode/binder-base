@@ -323,12 +323,20 @@ class Command(BaseCommand):
                 )
 
                 if rank is not None and file_name:
-                    cif_name = f"rank{rank:03d}_{file_name}"
-
-                    cif_matches = glob_module.glob(
-                        os.path.join(designs_dir, "**", cif_name),
-                        recursive=True,
+                    # Rank in the CIF filename may use any width (e.g.
+                    # rank1_, rank01_, rank001_), so glob a wildcard and
+                    # filter to the exact numeric rank.
+                    rank_re = re.compile(
+                        rf"^rank0*{int(rank)}_{re.escape(file_name)}$"
                     )
+                    cif_matches = [
+                        p
+                        for p in glob_module.glob(
+                            os.path.join(designs_dir, "**", f"rank*_{file_name}"),
+                            recursive=True,
+                        )
+                        if rank_re.match(os.path.basename(p))
+                    ]
                     if cif_matches:
                         fields["cif_path"] = os.path.relpath(
                             cif_matches[0], settings.MEDIA_ROOT
