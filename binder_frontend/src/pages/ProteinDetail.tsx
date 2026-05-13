@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { getProtein } from "../api/client";
 import type { Binder, BinderRun, ProteinDetail } from "../types";
 import CifViewer from "../components/CifViewer";
@@ -11,6 +11,7 @@ function statusClass(status: string | null): string {
   const s = status.toLowerCase();
   if (s === "success") return "s-success";
   if (s === "failed" || s === "failure") return "s-failed";
+  if (s === "passed") return "s-passed";
   return "s-unknown";
 }
 
@@ -43,13 +44,18 @@ export default function ProteinDetailPage() {
   const [copied, setCopied] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     if (!id) return;
     getProtein(Number(id))
       .then((p) => {
         setProtein(p);
-        if (p.runs.length > 0) setSelectedRunId(p.runs[0].id);
+        if (p.runs.length > 0) {
+          const paramId = Number(searchParams.get("run"));
+          const match = p.runs.find((r) => r.id === paramId);
+          setSelectedRunId(match ? match.id : p.runs[0].id);
+        }
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -161,9 +167,13 @@ export default function ProteinDetailPage() {
               <button
                 key={run.id}
                 className={`pd-run-nav-item${selectedRunId === run.id ? " active" : ""}`}
-                onClick={() => setSelectedRunId(run.id)}
+                onClick={() => {
+                  setSelectedRunId(run.id);
+                  setSearchParams({ run: String(run.id) }, { replace: true });
+                }}
               >
                 {runLabel(run)}
+                <span className="run-nav-count">{run.binders.length}</span>
               </button>
             ))}
           </aside>
@@ -272,25 +282,102 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
   );
 }
 
+type BinderSortKey = "rank" | "quality" | "iptm" | "length" | "status";
+type BinderSortDir = "asc" | "desc";
+type StatusFilter = "all" | "success" | "passed" | "failed";
+
+function BinderSortIcon({ active, dir }: { active: boolean; dir: BinderSortDir }) {
+  if (!active) return <span className="sort-icon inactive">↕</span>;
+  return <span className="sort-icon active">{dir === "asc" ? "↑" : "↓"}</span>;
+}
+
+const PAGE_SIZES = [20, 50, 100] as const;
+type PageSize = typeof PAGE_SIZES[number];
+
 function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: string | null }) {
   const [selectedBinder, setSelectedBinder] = useState<Binder | null>(null);
+  const [sortKey, setSortKey] = useState<BinderSortKey>("rank");
+  const [sortDir, setSortDir] = useState<BinderSortDir>("asc");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(20);
+
+  function handleSort(key: BinderSortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+    setPage(1);
+  }
+
+  function handleStatusFilter(f: StatusFilter) {
+    setStatusFilter(f);
+    setPage(1);
+  }
+
+  const sorted = useMemo(() => {
+    let rows = binders;
+    if (statusFilter !== "all")
+      rows = rows.filter((b) => (b.status ?? "").toLowerCase() === statusFilter);
+    return [...rows].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === "rank")    cmp = (a.final_rank ?? Infinity) - (b.final_rank ?? Infinity);
+      if (sortKey === "quality") cmp = (a.quality_score ?? 0) - (b.quality_score ?? 0);
+      if (sortKey === "iptm")    cmp = (a.design_to_target_iptm ?? 0) - (b.design_to_target_iptm ?? 0);
+      if (sortKey === "length")  cmp = (a.binder_length ?? 0) - (b.binder_length ?? 0);
+      if (sortKey === "status")  cmp = (a.status ?? "").toLowerCase().localeCompare((b.status ?? "").toLowerCase());
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [binders, statusFilter, sortKey, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const visible = sorted.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   if (binders.length === 0) return <p className="status">No binders.</p>;
 
   return (
     <>
+      <div className="binder-filter-bar">
+        {(["all", "success", "passed", "failed"] as const).map((f) => (
+          <button
+            key={f}
+            className={`binder-filter-btn${statusFilter === f ? " active" : ""}`}
+            onClick={() => handleStatusFilter(f)}
+          >
+            {f.charAt(0).toUpperCase() + f.slice(1)}
+          </button>
+        ))}
+        <span className="binder-filter-count">
+          {sorted.length} binder{sorted.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+
       <table>
         <thead>
           <tr>
-            <th>Rank</th>
-            <th>Quality Score</th>
-            <th>iPTM</th>
+            <th className="th-sortable" onClick={() => handleSort("rank")}>
+              Rank <BinderSortIcon active={sortKey === "rank"} dir={sortDir} />
+            </th>
+            <th className="th-sortable" onClick={() => handleSort("quality")}>
+              Quality Score <BinderSortIcon active={sortKey === "quality"} dir={sortDir} />
+            </th>
+            <th className="th-sortable" onClick={() => handleSort("iptm")}>
+              iPTM <BinderSortIcon active={sortKey === "iptm"} dir={sortDir} />
+            </th>
             <th>Sequence</th>
-            <th>Length (aa)</th>
+            <th className="th-sortable" onClick={() => handleSort("length")}>
+              Length (aa) <BinderSortIcon active={sortKey === "length"} dir={sortDir} />
+            </th>
+            <th className="th-sortable" onClick={() => handleSort("status")}>
+              Status <BinderSortIcon active={sortKey === "status"} dir={sortDir} />
+            </th>
           </tr>
         </thead>
         <tbody>
-          {binders.map((b) => (
+          {visible.map((b) => (
             <tr
               key={b.id}
               className="binder-row"
@@ -302,10 +389,51 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
               <td>{b.design_to_target_iptm != null ? b.design_to_target_iptm.toFixed(3) : "—"}</td>
               <td className="sequence">{b.binder_sequence}</td>
               <td>{b.binder_length ?? "—"}</td>
+              <td>
+                {b.status ? (
+                  <span className={`status-pill ${statusClass(b.status)}`}>{b.status}</span>
+                ) : "—"}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      <div className="binder-pagination">
+        <div className="binder-page-size-group">
+          <span className="binder-page-size-label">Show:</span>
+          {PAGE_SIZES.map((s) => (
+            <button
+              key={s}
+              className={`binder-page-size-btn${pageSize === s ? " active" : ""}`}
+              onClick={() => { setPageSize(s); setPage(1); }}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+        {totalPages > 1 && (
+          <div className="binder-page-nav">
+            <button
+              className="binder-page-btn"
+              onClick={() => setPage((p) => p - 1)}
+              disabled={safePage === 1}
+            >
+              ← Prev
+            </button>
+            <span className="binder-page-info">
+              Page {safePage} of {totalPages}
+            </span>
+            <button
+              className="binder-page-btn"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={safePage === totalPages}
+            >
+              Next →
+            </button>
+          </div>
+        )}
+      </div>
 
       {selectedBinder && (
         <BinderModal
