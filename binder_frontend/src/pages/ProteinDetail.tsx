@@ -35,6 +35,7 @@ function runLabel(run: BinderRun): string {
   return parts.length > 0 ? parts.join(" — ") : `Run #${run.id}`;
 }
 
+
 export default function ProteinDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -185,7 +186,58 @@ export default function ProteinDetailPage() {
               const sorted = [...run.binders].sort(
                 (a, b) => (a.final_rank ?? Infinity) - (b.final_rank ?? Infinity)
               );
-              return <BindersTable binders={sorted} runCifPath={run.cif_path} />;
+              return (
+                <>
+                  <div className="run-target-section">
+                    <div className="run-section-title">Target protein for this run</div>
+                    <div className="run-target-body">
+                      <div className="run-target-cif">
+                        {run.cif_path
+                          ? <CifViewer cifPath={run.cif_path} label={protein.protein_name ?? protein.uniprot_id ?? "Target"} />
+                          : <p className="cif-modal-empty">No structure available.</p>
+                        }
+                      </div>
+                      <div className="run-target-seq">
+                        <div className="pd-seq-header">
+                          <span className="pd-chain-label">
+                            {protein.protein_name ?? protein.uniprot_id ?? `Protein #${protein.id}`}
+                          </span>
+                        </div>
+                        {run.target_sequence
+                          ? (
+                            <div className="pd-seq-block">
+                              {formatSequence(run.target_sequence).map(({ lineNum, blocks }) => (
+                                <div key={lineNum} className="seq-line">
+                                  <span className="seq-num">{lineNum}</span>
+                                  <span className="seq-blocks">{blocks.join(" ")}</span>
+                                  <span className="seq-end">{Math.min(lineNum + 59, run.target_sequence!.length)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="status" style={{ padding: "1rem 1.25rem" }}>
+                              No sequence available.
+                            </p>
+                          )
+                        }
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="run-config-section">
+                    <div className="run-section-title">Steps &amp; Configuration</div>
+                    <dl className="run-config-dl">
+                      {run.algorithm_version && <><dt>Algorithm</dt><dd>{run.algorithm_version}</dd></>}
+                      {run.run_datetime && <><dt>Run date</dt><dd>{new Date(run.run_datetime).toLocaleString()}</dd></>}
+                      {run.hardware && <><dt>Hardware</dt><dd>{run.hardware}</dd></>}
+                      {run.description && <><dt>Description</dt><dd>{run.description}</dd></>}
+                      {run.notes && <><dt>Notes</dt><dd>{run.notes}</dd></>}
+                    </dl>
+                  </div>
+
+                  <BindersTable binders={sorted} runCifPath={run.cif_path} />
+                </>
+              );
             })()}
           </div>
         </div>

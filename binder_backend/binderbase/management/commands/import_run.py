@@ -71,6 +71,61 @@ def _download_file(url, dest_path):
             f.write(resp.read())
 
 
+def _parse_cif_sequence(cif_path):
+    """Extract target sequence from a BinderRun CIF file (_entity_poly section)."""
+    try:
+        with open(cif_path) as f:
+            text = f.read()
+    except OSError:
+        return None
+
+    for key in [
+        "_entity_poly.pdbx_seq_one_letter_code_can",
+        "_entity_poly.pdbx_seq_one_letter_code",
+    ]:
+        # Semicolon-delimited multi-line value (non-loop format)
+        m = re.search(re.escape(key) + r"\s*\n;([\s\S]*?)\n;", text, re.IGNORECASE)
+        if m:
+            seq = re.sub(r"\s+", "", m.group(1)).upper()
+            if seq:
+                return seq
+
+        # Single-line key-value (non-loop format) — use [ \t]+ to avoid crossing newlines
+        m = re.search(r"^" + re.escape(key) + r"[ \t]+(\S+)", text, re.IGNORECASE | re.MULTILINE)
+        if m and m.group(1) not in (".", "?") and not m.group(1).startswith("_"):
+            seq = m.group(1).strip("'\"").upper()
+            if seq:
+                return seq
+
+        # Loop format: key appears as a column definition line
+        lines = text.split("\n")
+        key_lower = key.lower()
+        for key_idx, line in enumerate(lines):
+            if line.strip().lower() != key_lower:
+                continue
+            # Count preceding consecutive _field lines to determine column index
+            col_idx = 0
+            back = key_idx - 1
+            while back >= 0 and lines[back].strip().startswith("_"):
+                col_idx += 1
+                back -= 1
+            # Skip to the first data row
+            data_idx = key_idx + 1
+            while data_idx < len(lines) and lines[data_idx].strip().startswith("_"):
+                data_idx += 1
+            while data_idx < len(lines) and not lines[data_idx].strip():
+                data_idx += 1
+            if data_idx >= len(lines):
+                continue
+            tokens = lines[data_idx].strip().split()
+            if col_idx < len(tokens):
+                seq = tokens[col_idx].upper()
+                if seq and seq not in (".", "?"):
+                    return seq
+
+    return None
+
+
 class Command(BaseCommand):
     help = (
         "Import new binder design run directories into BinderRun database."
@@ -139,6 +194,7 @@ class Command(BaseCommand):
                 if root_cif_files
                 else None
             )
+            target_sequence = _parse_cif_sequence(root_cif_files[0]) if root_cif_files else None
 
             # Get or create Protein
             try:
@@ -183,6 +239,7 @@ class Command(BaseCommand):
                 run_datetime=run_datetime,
                 run_dir=run_dir_rel,
                 cif_path=run_cif_rel,
+                target_sequence=target_sequence,
             )
 
             csv_files = glob_module.glob(os.path.join(designs_dir, "*.csv"))

@@ -27,6 +27,7 @@ class BinderRun(models.Model):
     notes = models.TextField(null=True, blank=True)
     run_dir = models.CharField(max_length=1024, null=True, blank=True)
     cif_path = models.FileField(null=True, blank=True, max_length=1024, verbose_name="CIF path")
+    target_sequence = models.TextField(null=True, blank=True)
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

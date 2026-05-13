@@ -2312,4 +2312,55 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
   .sp-wizard-step-label {
     display: none;
   }
+
+/* ── Run target protein + config sections ── */
+.run-target-section,
+.run-config-section {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  margin-bottom: 1.25rem;
+  overflow: hidden;
+}
+
+.run-section-title {
+  padding: 0.75rem 1.25rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #555;
+  background: #fafafa;
+  border-bottom: 1px solid #ebebeb;
+}
+
+.run-target-body {
+  display: flex;
+  height: 400px;
+}
+
+.run-target-cif {
+  flex: 1 1 0;
+  display: flex;
+  border-right: 1px solid #ebebeb;
+  overflow: hidden;
+}
+
+.run-target-seq {
+  flex: 1 1 0;
+  overflow-y: auto;
+}
+
+.run-target-seq .pd-seq-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.run-config-dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.4rem 1.5rem;
+  margin: 0;
+  padding: 1rem 1.25rem;
 }
