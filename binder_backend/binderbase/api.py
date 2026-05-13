@@ -53,6 +53,7 @@ class BinderRunSchema(Schema):
     run_dir: str | None
     cif_path: str | None
     target_sequence: str | None
+    steps_config: dict | list | None
     user: str | None
     binders: list[BinderSchema]
 

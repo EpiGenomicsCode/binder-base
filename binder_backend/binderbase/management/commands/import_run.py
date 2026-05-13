@@ -6,6 +6,8 @@ import re
 import urllib.request
 from datetime import datetime
 
+import yaml
+
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
@@ -69,6 +71,63 @@ def _download_file(url, dest_path):
     with urllib.request.urlopen(url, timeout=30) as resp:
         with open(dest_path, "wb") as f:
             f.write(resp.read())
+
+
+CONFIG_PATH_KEYS = {"config", "config_file", "config_path"}
+
+
+def _load_config_file(file_path):
+    """Load a referenced config file (YAML or JSON). Returns None if invalid."""
+    ext = os.path.splitext(file_path)[1].lower()
+    try:
+        with open(file_path) as f:
+            if ext in (".yaml", ".yml"):
+                return yaml.safe_load(f)
+            if ext == ".json":
+                return json.load(f)
+    except (OSError, yaml.YAMLError, json.JSONDecodeError):
+        return None
+    return None
+
+
+def _inline_config_files(node, run_dir):
+    """Walk the parsed steps.yaml tree and replace config-path strings
+    with the parsed contents of the referenced file (resolved relative to
+    run_dir).
+    """
+    if isinstance(node, dict):
+        for key in list(node.keys()):
+            val = node[key]
+            if key in CONFIG_PATH_KEYS and isinstance(val, str):
+                file_path = os.path.join(run_dir, val)
+                if os.path.isfile(file_path):
+                    parsed = _load_config_file(file_path)
+                    if parsed is not None:
+                        node[key] = parsed
+                        # Skip recursing into the freshly-loaded content.
+                        continue
+            _inline_config_files(val, run_dir)
+    elif isinstance(node, list):
+        for item in node:
+            _inline_config_files(item, run_dir)
+
+
+def _parse_steps_config(run_dir):
+    """Load steps.yaml and inline any referenced config files.
+    Returns None if steps.yaml is missing/invalid.
+    """
+    steps_path = os.path.join(run_dir, "steps.yaml")
+    if not os.path.isfile(steps_path):
+        return None
+    try:
+        with open(steps_path) as f:
+            data = yaml.safe_load(f)
+    except (OSError, yaml.YAMLError):
+        return None
+    if data is None:
+        return None
+    _inline_config_files(data, run_dir)
+    return data
 
 
 def _parse_cif_sequence(cif_path):
@@ -136,9 +195,7 @@ class Command(BaseCommand):
         "The command will create a BinderRun record and associate it with the specified Protein (by UniProt ID). "
         "If the Protein does not exist, it will query the UniProt database and populate the protein entry."
     )
-
-    # TODO: import additional metadata from the steps.yaml (or another file), e.g. hardware, notes, etc.
-
+    
     def handle(self, *args, **options):
         runs_root = os.path.join(settings.MEDIA_ROOT, "runs")
         if not os.path.isdir(runs_root):
@@ -233,6 +290,8 @@ class Command(BaseCommand):
                     f"Created Protein: {uniprot_id} ({protein.protein_name})"
                 )
 
+            steps_config = _parse_steps_config(run_dir)
+
             run = BinderRun.objects.create(
                 protein=protein,
                 algorithm_version=algorithm_version,
@@ -240,6 +299,7 @@ class Command(BaseCommand):
                 run_dir=run_dir_rel,
                 cif_path=run_cif_rel,
                 target_sequence=target_sequence,
+                steps_config=steps_config,
             )
 
             csv_files = glob_module.glob(os.path.join(designs_dir, "*.csv"))

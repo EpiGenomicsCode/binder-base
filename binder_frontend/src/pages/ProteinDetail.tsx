@@ -35,6 +35,122 @@ function runLabel(run: BinderRun): string {
   return parts.length > 0 ? parts.join(" — ") : `Run #${run.id}`;
 }
 
+interface RunStep {
+  name: string;
+  config: unknown;
+  configPath: string | null;
+}
+
+function normalizeSteps(stepsConfig: unknown): RunStep[] {
+  if (!stepsConfig) return [];
+
+  const pickConfig = (val: Record<string, unknown>): unknown => {
+    if ("config" in val) return val.config;
+    if ("config_file" in val) return val.config_file;
+    if ("config_path" in val) return val.config_path;
+    return null;
+  };
+
+  const pickConfigPath = (val: Record<string, unknown>): string | null => {
+    for (const k of ["config_path", "config_file_path", "config_file"] as const) {
+      const v = val[k];
+      if (typeof v === "string") return v;
+    }
+    // Older format where config field itself was the path string
+    if (typeof val.config === "string") return val.config;
+    return null;
+  };
+
+  const fromEntry = (entry: unknown, idx: number): RunStep => {
+    if (typeof entry === "string") return { name: entry, config: null, configPath: null };
+    if (entry && typeof entry === "object") {
+      const e = entry as Record<string, unknown>;
+      const name = e.name ?? e.step ?? e.id ?? `Step ${idx + 1}`;
+      const config = pickConfig(e);
+      const configPath = pickConfigPath(e);
+      return {
+        name: String(name),
+        config: typeof config === "string" ? null : config,
+        configPath,
+      };
+    }
+    return { name: `Step ${idx + 1}`, config: null, configPath: null };
+  };
+
+  let rawList: unknown[] | null = null;
+
+  if (Array.isArray(stepsConfig)) {
+    rawList = stepsConfig;
+  } else if (typeof stepsConfig === "object") {
+    const obj = stepsConfig as Record<string, unknown>;
+    if (Array.isArray(obj.steps)) {
+      rawList = obj.steps;
+    } else if (obj.steps && typeof obj.steps === "object") {
+      return Object.entries(obj.steps as Record<string, unknown>).map(([k, v]) => ({
+        name: k,
+        config: v && typeof v === "object" ? pickConfig(v as Record<string, unknown>) : v,
+        configPath: v && typeof v === "object" ? pickConfigPath(v as Record<string, unknown>) : null,
+      }));
+    } else {
+      return Object.entries(obj).map(([k, v]) => ({
+        name: k,
+        config: v && typeof v === "object" ? pickConfig(v as Record<string, unknown>) : v,
+        configPath: v && typeof v === "object" ? pickConfigPath(v as Record<string, unknown>) : null,
+      }));
+    }
+  }
+
+  return rawList ? rawList.map(fromEntry) : [];
+}
+
+function RunStepsList({ stepsConfig }: { stepsConfig: unknown }) {
+  const steps = normalizeSteps(stepsConfig);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+
+  if (steps.length === 0) return null;
+
+  function toggle(i: number) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(i) ? next.delete(i) : next.add(i);
+      return next;
+    });
+  }
+
+  return (
+    <div className="run-steps-section">
+      <div className="run-steps-section-title">Steps</div>
+      <ol className="run-steps-list">
+        {steps.map((step, i) => {
+          const isOpen = expanded.has(i);
+          const hasConfig = step.config !== null && step.config !== undefined;
+          return (
+            <li key={i} className="run-step-item">
+              <div className="run-step-header">
+                <span className="run-step-name">{step.name}</span>
+                {hasConfig && (
+                  <button
+                    className="run-step-toggle"
+                    onClick={() => toggle(i)}
+                    aria-expanded={isOpen}
+                  >
+                    {isOpen ? "Hide config ▲" : "Show config ▼"}
+                  </button>
+                )}
+              </div>
+              {isOpen && hasConfig && (
+                <pre className="run-step-config">
+                  {JSON.stringify(step.config, null, 2)}
+                </pre>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
 
 export default function ProteinDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -247,6 +363,7 @@ export default function ProteinDetailPage() {
                       {run.description && <><dt>Description</dt><dd>{run.description}</dd></>}
                       {run.notes && <><dt>Notes</dt><dd>{run.notes}</dd></>}
                     </dl>
+                    <RunStepsList key={run.id} stepsConfig={run.steps_config} />
                   </div>
                   <div className="run-section-title">Binders</div>
                   <BindersTable binders={sorted} runCifPath={run.cif_path} />

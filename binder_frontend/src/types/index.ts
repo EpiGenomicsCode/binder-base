@@ -39,6 +39,7 @@ export interface BinderRun {
   notes: string | null;
   cif_path: string | null;
   target_sequence: string | null;
+  steps_config: unknown;
   binders: Binder[];
 }
 

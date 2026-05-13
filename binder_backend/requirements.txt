@@ -4,3 +4,4 @@ django-ninja
 django-environ
 django-extensions
 graphviz
+PyYAML
