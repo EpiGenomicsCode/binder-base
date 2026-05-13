@@ -282,11 +282,21 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
         </div>
         {hasCifs ? (
           <div className="cif-modal-viewers">
-            {runCifPath && (
+            {runCifPath ? (
               <CifViewer cifPath={runCifPath} label="Target protein" />
+            ) : (
+              <div className="cif-viewer-wrap">
+                <div className="cif-viewer-label">Target protein</div>
+                <div className="cif-viewer-placeholder">No CIF file available</div>
+              </div>
             )}
-            {binder.cif_path && (
+            {binder.cif_path ? (
               <CifViewer cifPath={binder.cif_path} label="Target + Binder" />
+            ) : (
+              <div className="cif-viewer-wrap">
+                <div className="cif-viewer-label">Target + Binder</div>
+                <div className="cif-viewer-placeholder">No CIF file available</div>
+              </div>
             )}
           </div>
         ) : (

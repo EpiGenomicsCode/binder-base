@@ -1106,6 +1106,18 @@ dd { margin: 0; word-break: break-word; }
   min-height: 0;
 }
 
+.cif-viewer-placeholder {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-style: italic;
+  font-size: 0.9rem;
+  background: #fafafa;
+}
+
 /* ── Binder filter bar ── */
 .binder-filter-bar {
   display: flex;
