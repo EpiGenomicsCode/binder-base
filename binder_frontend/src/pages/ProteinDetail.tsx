@@ -189,11 +189,10 @@ export default function ProteinDetailPage() {
               return (
                 <>
                   <div className="run-target-section">
-                    <div className="run-section-title">Target protein for this run</div>
                     <div className="run-target-body">
                       <div className="run-target-cif">
                         {run.cif_path
-                          ? <CifViewer cifPath={run.cif_path} label={protein.protein_name ?? protein.uniprot_id ?? "Target"} />
+                          ? <CifViewer cifPath={run.cif_path} label="Target Protein" />
                           : <p className="cif-modal-empty">No structure available.</p>
                         }
                       </div>

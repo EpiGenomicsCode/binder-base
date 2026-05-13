@@ -29,7 +29,7 @@ export default function CifViewer({ cifPath, label }: Props) {
       viewportShowAnimation: false,
       viewportShowSettings: false,
       viewportShowScreenshotControls: false,
-      viewportBackgroundColor: "#f8f8f8",
+      viewportBackgroundColor: "#ffffff",
     }).then((v) => {
       if (disposed) { v.dispose(); return; }
       viewer = v;

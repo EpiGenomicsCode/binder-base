@@ -2313,6 +2313,7 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
   .sp-wizard-step-label {
     display: none;
   }
+}
 
 /* ── Run target protein + config sections ── */
 .run-target-section,
