@@ -2338,8 +2338,8 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
 }
 
 .run-section-title {
-  padding: 0.75rem 1.25rem;
-  font-size: 0.82rem;
+  padding: 0.75rem 1.25rem 0.75rem 0.25rem;
+  font-size: 1rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;

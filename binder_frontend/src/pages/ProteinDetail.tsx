@@ -248,7 +248,7 @@ export default function ProteinDetailPage() {
                       {run.notes && <><dt>Notes</dt><dd>{run.notes}</dd></>}
                     </dl>
                   </div>
-
+                  <div className="run-section-title">Binders</div>
                   <BindersTable binders={sorted} runCifPath={run.cif_path} />
                 </>
               );
