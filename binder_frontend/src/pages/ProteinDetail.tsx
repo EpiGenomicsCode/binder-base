@@ -43,6 +43,7 @@ export default function ProteinDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedTarget, setCopiedTarget] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
@@ -67,6 +68,13 @@ export default function ProteinDetailPage() {
     navigator.clipboard.writeText(protein.sequence).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  function copyTargetSequence(seq: string) {
+    navigator.clipboard.writeText(seq).then(() => {
+      setCopiedTarget(true);
+      setTimeout(() => setCopiedTarget(false), 2000);
     });
   }
 
@@ -189,25 +197,37 @@ export default function ProteinDetailPage() {
               return (
                 <>
                   <div className="run-target-section">
+                    <div className="run-section-title">DESIGN TARGET PROTEIN STRUCTURE</div>
                     <div className="run-target-body">
                       <div className="run-target-cif">
                         {run.cif_path
-                          ? <CifViewer cifPath={run.cif_path} label="Target Protein" />
+                          ? <CifViewer cifPath={run.cif_path} label="AlphaFold Structure" />
                           : <p className="cif-modal-empty">No structure available.</p>
                         }
                       </div>
                       <div className="run-target-seq">
                         {run.target_sequence
                           ? (
-                            <div className="pd-seq-block">
-                              {formatSequence(run.target_sequence).map(({ lineNum, blocks }) => (
-                                <div key={lineNum} className="seq-line">
-                                  <span className="seq-num">{lineNum}</span>
-                                  <span className="seq-blocks">{blocks.join(" ")}</span>
-                                  <span className="seq-end">{Math.min(lineNum + 59, run.target_sequence!.length)}</span>
-                                </div>
-                              ))}
-                            </div>
+                            <>
+                              <div className="pd-seq-header">
+                                <span className="pd-chain-label">SEQUENCE</span>
+                                <button
+                                  className="pd-copy-btn"
+                                  onClick={() => copyTargetSequence(run.target_sequence!)}
+                                >
+                                  {copiedTarget ? "Copied!" : "Copy sequence"}
+                                </button>
+                              </div>
+                              <div className="pd-seq-block">
+                                {formatSequence(run.target_sequence).map(({ lineNum, blocks }) => (
+                                  <div key={lineNum} className="seq-line">
+                                    <span className="seq-num">{lineNum}</span>
+                                    <span className="seq-blocks">{blocks.join(" ")}</span>
+                                    <span className="seq-end">{Math.min(lineNum + 59, run.target_sequence!.length)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
                           ) : (
                             <p className="status" style={{ padding: "1rem 1.25rem" }}>
                               No sequence available.

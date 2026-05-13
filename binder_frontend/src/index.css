@@ -2358,17 +2358,52 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
   display: flex;
   border-right: 1px solid #ebebeb;
   overflow: hidden;
+  min-height: 0;
 }
 
 .run-target-seq {
   flex: 1 1 0;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
 }
 
-.run-target-seq .pd-seq-header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+.run-target-seq .pd-seq-block {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.run-target-section .cif-viewer-label,
+.run-target-section .pd-seq-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  padding: 0 1rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #555;
+  background: #f5f5f5;
+  border-bottom: 1px solid #ebebeb;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.run-target-section .pd-chain-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #555;
+}
+
+.run-target-section .pd-copy-btn {
+  padding: 0.15rem 0.6rem;
+  font-size: 0.78rem;
 }
 
 .run-config-dl {
