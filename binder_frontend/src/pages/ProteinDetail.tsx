@@ -198,11 +198,6 @@ export default function ProteinDetailPage() {
                         }
                       </div>
                       <div className="run-target-seq">
-                        <div className="pd-seq-header">
-                          <span className="pd-chain-label">
-                            {protein.protein_name ?? protein.uniprot_id ?? `Protein #${protein.id}`}
-                          </span>
-                        </div>
                         {run.target_sequence
                           ? (
                             <div className="pd-seq-block">
