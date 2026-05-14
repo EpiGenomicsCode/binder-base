@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { getProtein } from "../api/client";
 import type { Binder, BinderRun, ProteinDetail } from "../types";
@@ -487,6 +487,25 @@ function BinderSortIcon({ active, dir }: { active: boolean; dir: BinderSortDir }
 const PAGE_SIZES = [20, 50, 100] as const;
 type PageSize = typeof PAGE_SIZES[number];
 
+interface BinderColumn {
+  id: string;
+  label: string;
+  sortKey?: BinderSortKey;
+  cellClassName?: string;
+  render: (b: Binder) => React.ReactNode;
+}
+
+const BINDER_COLUMNS: BinderColumn[] = [
+  { id: "rank",     label: "Rank",          sortKey: "rank",    render: (b) => b.final_rank ?? "—" },
+  { id: "quality",  label: "Quality Score", sortKey: "quality", render: (b) => b.quality_score != null ? b.quality_score.toFixed(3) : "—" },
+  { id: "iptm",     label: "iPTM",          sortKey: "iptm",    render: (b) => b.design_to_target_iptm != null ? b.design_to_target_iptm.toFixed(3) : "—" },
+  { id: "sequence", label: "Sequence",      cellClassName: "sequence", render: (b) => b.binder_sequence },
+  { id: "length",   label: "Length (aa)",   sortKey: "length",  render: (b) => b.binder_length ?? "—" },
+  { id: "status",   label: "Status",        sortKey: "status",  render: (b) => b.status ? <span className={`status-pill ${statusClass(b.status)}`}>{b.status}</span> : "—" },
+];
+
+const DEFAULT_VISIBLE_BINDER_COLUMNS: string[] = BINDER_COLUMNS.map((c) => c.id);
+
 function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: string | null }) {
   const [selectedBinder, setSelectedBinder] = useState<Binder | null>(null);
   const [sortKey, setSortKey] = useState<BinderSortKey>("rank");
@@ -494,6 +513,57 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSize>(20);
+  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
+    () => new Set(DEFAULT_VISIBLE_BINDER_COLUMNS)
+  );
+  const [columnsMenuOpen, setColumnsMenuOpen] = useState(false);
+  const columnsMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!columnsMenuOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (columnsMenuRef.current && !columnsMenuRef.current.contains(e.target as Node)) {
+        setColumnsMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [columnsMenuOpen]);
+
+  function toggleColumn(id: string) {
+    setVisibleColumns((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      // Ensure at least one column stays visible
+      if (next.size === 0) next.add(id);
+      return next;
+    });
+  }
+
+  const metricColumns: BinderColumn[] = useMemo(() => {
+    const keys = new Set<string>();
+    for (const b of binders) {
+      if (!b.metrics) continue;
+      for (const k of Object.keys(b.metrics)) {
+        if (k === "id" || k === "file_name") continue;
+        keys.add(k);
+      }
+    }
+    return Array.from(keys).sort().map((k) => ({
+      id: `metric:${k}`,
+      label: k,
+      render: (b: Binder) => {
+        const v = b.metrics?.[k];
+        return v == null || v === "" ? "—" : String(v);
+      },
+    }));
+  }, [binders]);
+
+  const allColumns = useMemo(
+    () => [...BINDER_COLUMNS, ...metricColumns],
+    [metricColumns]
+  );
+  const activeColumns = allColumns.filter((c) => visibleColumns.has(c.id));
 
   function handleSort(key: BinderSortKey) {
     if (sortKey === key) {
@@ -546,27 +616,72 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
         <span className="binder-filter-count">
           {sorted.length} binder{sorted.length !== 1 ? "s" : ""}
         </span>
+        <div className="binder-columns-menu" ref={columnsMenuRef}>
+          <button
+            className="binder-columns-btn"
+            onClick={() => setColumnsMenuOpen((o) => !o)}
+            aria-expanded={columnsMenuOpen}
+          >
+            Columns ▾
+          </button>
+          {columnsMenuOpen && (
+            <div className="binder-columns-popover">
+              <div className="binder-columns-header">
+                <button
+                  className="binder-columns-reset"
+                  onClick={() => setVisibleColumns(new Set(DEFAULT_VISIBLE_BINDER_COLUMNS))}
+                >
+                  Reset to default
+                </button>
+              </div>
+              <div className="binder-columns-group-label">Standard</div>
+              {BINDER_COLUMNS.map((col) => (
+                <label key={col.id} className="binder-columns-row">
+                  <input
+                    type="checkbox"
+                    checked={visibleColumns.has(col.id)}
+                    onChange={() => toggleColumn(col.id)}
+                  />
+                  <span>{col.label}</span>
+                </label>
+              ))}
+              {metricColumns.length > 0 && (
+                <>
+                  <div className="binder-columns-group-label">Metrics</div>
+                  {metricColumns.map((col) => (
+                    <label key={col.id} className="binder-columns-row">
+                      <input
+                        type="checkbox"
+                        checked={visibleColumns.has(col.id)}
+                        onChange={() => toggleColumn(col.id)}
+                      />
+                      <span>{col.label}</span>
+                    </label>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <table>
         <thead>
           <tr>
-            <th className="th-sortable" onClick={() => handleSort("rank")}>
-              Rank <BinderSortIcon active={sortKey === "rank"} dir={sortDir} />
-            </th>
-            <th className="th-sortable" onClick={() => handleSort("quality")}>
-              Quality Score <BinderSortIcon active={sortKey === "quality"} dir={sortDir} />
-            </th>
-            <th className="th-sortable" onClick={() => handleSort("iptm")}>
-              iPTM <BinderSortIcon active={sortKey === "iptm"} dir={sortDir} />
-            </th>
-            <th>Sequence</th>
-            <th className="th-sortable" onClick={() => handleSort("length")}>
-              Length (aa) <BinderSortIcon active={sortKey === "length"} dir={sortDir} />
-            </th>
-            <th className="th-sortable" onClick={() => handleSort("status")}>
-              Status <BinderSortIcon active={sortKey === "status"} dir={sortDir} />
-            </th>
+            {activeColumns.map((col) =>
+              col.sortKey ? (
+                <th
+                  key={col.id}
+                  className="th-sortable"
+                  onClick={() => handleSort(col.sortKey!)}
+                >
+                  {col.label}{" "}
+                  <BinderSortIcon active={sortKey === col.sortKey} dir={sortDir} />
+                </th>
+              ) : (
+                <th key={col.id}>{col.label}</th>
+              )
+            )}
           </tr>
         </thead>
         <tbody>
@@ -577,16 +692,11 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
               onClick={() => setSelectedBinder(b)}
               title="Click to view structures"
             >
-              <td>{b.final_rank ?? "—"}</td>
-              <td>{b.quality_score != null ? b.quality_score.toFixed(3) : "—"}</td>
-              <td>{b.design_to_target_iptm != null ? b.design_to_target_iptm.toFixed(3) : "—"}</td>
-              <td className="sequence">{b.binder_sequence}</td>
-              <td>{b.binder_length ?? "—"}</td>
-              <td>
-                {b.status ? (
-                  <span className={`status-pill ${statusClass(b.status)}`}>{b.status}</span>
-                ) : "—"}
-              </td>
+              {activeColumns.map((col) => (
+                <td key={col.id} className={col.cellClassName}>
+                  {col.render(b)}
+                </td>
+              ))}
             </tr>
           ))}
         </tbody>
