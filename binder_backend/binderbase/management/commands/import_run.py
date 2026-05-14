@@ -6,6 +6,8 @@ import re
 import urllib.request
 from datetime import datetime
 
+import yaml
+
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
@@ -71,6 +73,118 @@ def _download_file(url, dest_path):
             f.write(resp.read())
 
 
+CONFIG_PATH_KEYS = {"config", "config_file", "config_path"}
+
+
+def _load_config_file(file_path):
+    """Load a referenced config file (YAML or JSON). Returns None if invalid."""
+    ext = os.path.splitext(file_path)[1].lower()
+    try:
+        with open(file_path) as f:
+            if ext in (".yaml", ".yml"):
+                return yaml.safe_load(f)
+            if ext == ".json":
+                return json.load(f)
+    except (OSError, yaml.YAMLError, json.JSONDecodeError):
+        return None
+    return None
+
+
+def _inline_config_files(node, run_dir):
+    """Walk the parsed steps.yaml tree and replace config-path strings
+    with the parsed contents of the referenced file (resolved relative to
+    run_dir).
+    """
+    if isinstance(node, dict):
+        for key in list(node.keys()):
+            val = node[key]
+            if key in CONFIG_PATH_KEYS and isinstance(val, str):
+                file_path = os.path.join(run_dir, val)
+                if os.path.isfile(file_path):
+                    parsed = _load_config_file(file_path)
+                    if parsed is not None:
+                        node[key] = parsed
+                        # Skip recursing into the freshly-loaded content.
+                        continue
+            _inline_config_files(val, run_dir)
+    elif isinstance(node, list):
+        for item in node:
+            _inline_config_files(item, run_dir)
+
+
+def _parse_steps_config(run_dir):
+    """Load steps.yaml and inline any referenced config files.
+    Returns None if steps.yaml is missing/invalid.
+    """
+    steps_path = os.path.join(run_dir, "steps.yaml")
+    if not os.path.isfile(steps_path):
+        return None
+    try:
+        with open(steps_path) as f:
+            data = yaml.safe_load(f)
+    except (OSError, yaml.YAMLError):
+        return None
+    if data is None:
+        return None
+    _inline_config_files(data, run_dir)
+    return data
+
+
+def _parse_cif_sequence(cif_path):
+    """Extract target sequence from a BinderRun CIF file (_entity_poly section)."""
+    try:
+        with open(cif_path) as f:
+            text = f.read()
+    except OSError:
+        return None
+
+    for key in [
+        "_entity_poly.pdbx_seq_one_letter_code_can",
+        "_entity_poly.pdbx_seq_one_letter_code",
+    ]:
+        # Semicolon-delimited multi-line value (non-loop format)
+        m = re.search(re.escape(key) + r"\s*\n;([\s\S]*?)\n;", text, re.IGNORECASE)
+        if m:
+            seq = re.sub(r"\s+", "", m.group(1)).upper()
+            if seq:
+                return seq
+
+        # Single-line key-value (non-loop format) — use [ \t]+ to avoid crossing newlines
+        m = re.search(r"^" + re.escape(key) + r"[ \t]+(\S+)", text, re.IGNORECASE | re.MULTILINE)
+        if m and m.group(1) not in (".", "?") and not m.group(1).startswith("_"):
+            seq = m.group(1).strip("'\"").upper()
+            if seq:
+                return seq
+
+        # Loop format: key appears as a column definition line
+        lines = text.split("\n")
+        key_lower = key.lower()
+        for key_idx, line in enumerate(lines):
+            if line.strip().lower() != key_lower:
+                continue
+            # Count preceding consecutive _field lines to determine column index
+            col_idx = 0
+            back = key_idx - 1
+            while back >= 0 and lines[back].strip().startswith("_"):
+                col_idx += 1
+                back -= 1
+            # Skip to the first data row
+            data_idx = key_idx + 1
+            while data_idx < len(lines) and lines[data_idx].strip().startswith("_"):
+                data_idx += 1
+            while data_idx < len(lines) and not lines[data_idx].strip():
+                data_idx += 1
+            if data_idx >= len(lines):
+                continue
+            tokens = lines[data_idx].strip().split()
+            if col_idx < len(tokens):
+                seq = tokens[col_idx].upper()
+                if seq and seq not in (".", "?"):
+                    return seq
+
+    return None
+
+
 class Command(BaseCommand):
     help = (
         "Import new binder design run directories into BinderRun database."
@@ -81,9 +195,7 @@ class Command(BaseCommand):
         "The command will create a BinderRun record and associate it with the specified Protein (by UniProt ID). "
         "If the Protein does not exist, it will query the UniProt database and populate the protein entry."
     )
-
-    # TODO: import additional metadata from the steps.yaml (or another file), e.g. hardware, notes, etc.
-
+    
     def handle(self, *args, **options):
         runs_root = os.path.join(settings.MEDIA_ROOT, "runs")
         if not os.path.isdir(runs_root):
@@ -139,6 +251,7 @@ class Command(BaseCommand):
                 if root_cif_files
                 else None
             )
+            target_sequence = _parse_cif_sequence(root_cif_files[0]) if root_cif_files else None
 
             # Get or create Protein
             try:
@@ -177,12 +290,16 @@ class Command(BaseCommand):
                     f"Created Protein: {uniprot_id} ({protein.protein_name})"
                 )
 
+            steps_config = _parse_steps_config(run_dir)
+
             run = BinderRun.objects.create(
                 protein=protein,
                 algorithm_version=algorithm_version,
                 run_datetime=run_datetime,
                 run_dir=run_dir_rel,
                 cif_path=run_cif_rel,
+                target_sequence=target_sequence,
+                steps_config=steps_config,
             )
 
             csv_files = glob_module.glob(os.path.join(designs_dir, "*.csv"))
@@ -266,12 +383,20 @@ class Command(BaseCommand):
                 )
 
                 if rank is not None and file_name:
-                    cif_name = f"rank{rank:03d}_{file_name}"
-
-                    cif_matches = glob_module.glob(
-                        os.path.join(designs_dir, "**", cif_name),
-                        recursive=True,
+                    # Rank in the CIF filename may use any width (e.g.
+                    # rank1_, rank01_, rank001_), so glob a wildcard and
+                    # filter to the exact numeric rank.
+                    rank_re = re.compile(
+                        rf"^rank0*{int(rank)}_{re.escape(file_name)}$"
                     )
+                    cif_matches = [
+                        p
+                        for p in glob_module.glob(
+                            os.path.join(designs_dir, "**", f"rank*_{file_name}"),
+                            recursive=True,
+                        )
+                        if rank_re.match(os.path.basename(p))
+                    ]
                     if cif_matches:
                         fields["cif_path"] = os.path.relpath(
                             cif_matches[0], settings.MEDIA_ROOT

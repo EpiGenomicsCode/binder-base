@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { getProtein } from "../api/client";
 import type { Binder, BinderRun, ProteinDetail } from "../types";
@@ -35,6 +35,123 @@ function runLabel(run: BinderRun): string {
   return parts.length > 0 ? parts.join(" — ") : `Run #${run.id}`;
 }
 
+interface RunStep {
+  name: string;
+  config: unknown;
+  configPath: string | null;
+}
+
+function normalizeSteps(stepsConfig: unknown): RunStep[] {
+  if (!stepsConfig) return [];
+
+  const pickConfig = (val: Record<string, unknown>): unknown => {
+    if ("config" in val) return val.config;
+    if ("config_file" in val) return val.config_file;
+    if ("config_path" in val) return val.config_path;
+    return null;
+  };
+
+  const pickConfigPath = (val: Record<string, unknown>): string | null => {
+    for (const k of ["config_path", "config_file_path", "config_file"] as const) {
+      const v = val[k];
+      if (typeof v === "string") return v;
+    }
+    // Older format where config field itself was the path string
+    if (typeof val.config === "string") return val.config;
+    return null;
+  };
+
+  const fromEntry = (entry: unknown, idx: number): RunStep => {
+    if (typeof entry === "string") return { name: entry, config: null, configPath: null };
+    if (entry && typeof entry === "object") {
+      const e = entry as Record<string, unknown>;
+      const name = e.name ?? e.step ?? e.id ?? `Step ${idx + 1}`;
+      const config = pickConfig(e);
+      const configPath = pickConfigPath(e);
+      return {
+        name: String(name),
+        config: typeof config === "string" ? null : config,
+        configPath,
+      };
+    }
+    return { name: `Step ${idx + 1}`, config: null, configPath: null };
+  };
+
+  let rawList: unknown[] | null = null;
+
+  if (Array.isArray(stepsConfig)) {
+    rawList = stepsConfig;
+  } else if (typeof stepsConfig === "object") {
+    const obj = stepsConfig as Record<string, unknown>;
+    if (Array.isArray(obj.steps)) {
+      rawList = obj.steps;
+    } else if (obj.steps && typeof obj.steps === "object") {
+      return Object.entries(obj.steps as Record<string, unknown>).map(([k, v]) => ({
+        name: k,
+        config: v && typeof v === "object" ? pickConfig(v as Record<string, unknown>) : v,
+        configPath: v && typeof v === "object" ? pickConfigPath(v as Record<string, unknown>) : null,
+      }));
+    } else {
+      return Object.entries(obj).map(([k, v]) => ({
+        name: k,
+        config: v && typeof v === "object" ? pickConfig(v as Record<string, unknown>) : v,
+        configPath: v && typeof v === "object" ? pickConfigPath(v as Record<string, unknown>) : null,
+      }));
+    }
+  }
+
+  return rawList ? rawList.map(fromEntry) : [];
+}
+
+function RunStepsList({ stepsConfig }: { stepsConfig: unknown }) {
+  const steps = normalizeSteps(stepsConfig);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+
+  if (steps.length === 0) return null;
+
+  function toggle(i: number) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(i) ? next.delete(i) : next.add(i);
+      return next;
+    });
+  }
+
+  return (
+    <div className="run-steps-section">
+      <div className="run-steps-section-title">Steps</div>
+      <ol className="run-steps-list">
+        {steps.map((step, i) => {
+          const isOpen = expanded.has(i);
+          const hasConfig = step.config !== null && step.config !== undefined;
+          return (
+            <li key={i} className="run-step-item">
+              <div className="run-step-header">
+                <span className="run-step-name">{step.name}</span>
+                {hasConfig && (
+                  <button
+                    className="run-step-toggle"
+                    onClick={() => toggle(i)}
+                    aria-expanded={isOpen}
+                  >
+                    {isOpen ? "Hide config ▲" : "Show config ▼"}
+                  </button>
+                )}
+              </div>
+              {isOpen && hasConfig && (
+                <pre className="run-step-config">
+                  {JSON.stringify(step.config, null, 2)}
+                </pre>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+
 export default function ProteinDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -42,6 +159,7 @@ export default function ProteinDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedTarget, setCopiedTarget] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
@@ -66,6 +184,13 @@ export default function ProteinDetailPage() {
     navigator.clipboard.writeText(protein.sequence).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  function copyTargetSequence(seq: string) {
+    navigator.clipboard.writeText(seq).then(() => {
+      setCopiedTarget(true);
+      setTimeout(() => setCopiedTarget(false), 2000);
     });
   }
 
@@ -185,7 +310,65 @@ export default function ProteinDetailPage() {
               const sorted = [...run.binders].sort(
                 (a, b) => (a.final_rank ?? Infinity) - (b.final_rank ?? Infinity)
               );
-              return <BindersTable binders={sorted} runCifPath={run.cif_path} />;
+              return (
+                <>
+                  <div className="run-target-section">
+                    <div className="run-section-title">DESIGN TARGET PROTEIN STRUCTURE</div>
+                    <div className="run-target-body">
+                      <div className="run-target-cif">
+                        {run.cif_path
+                          ? <CifViewer cifPath={run.cif_path} label="AlphaFold Structure" />
+                          : <p className="cif-modal-empty">No structure available.</p>
+                        }
+                      </div>
+                      <div className="run-target-seq">
+                        {run.target_sequence
+                          ? (
+                            <>
+                              <div className="pd-seq-header">
+                                <span className="pd-chain-label">SEQUENCE</span>
+                                <button
+                                  className="pd-copy-btn"
+                                  onClick={() => copyTargetSequence(run.target_sequence!)}
+                                >
+                                  {copiedTarget ? "Copied!" : "Copy sequence"}
+                                </button>
+                              </div>
+                              <div className="pd-seq-block">
+                                {formatSequence(run.target_sequence).map(({ lineNum, blocks }) => (
+                                  <div key={lineNum} className="seq-line">
+                                    <span className="seq-num">{lineNum}</span>
+                                    <span className="seq-blocks">{blocks.join(" ")}</span>
+                                    <span className="seq-end">{Math.min(lineNum + 59, run.target_sequence!.length)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          ) : (
+                            <p className="status" style={{ padding: "1rem 1.25rem" }}>
+                              No sequence available.
+                            </p>
+                          )
+                        }
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="run-config-section">
+                    <div className="run-section-title">Steps &amp; Configuration</div>
+                    <dl className="run-config-dl">
+                      {run.algorithm_version && <><dt>Algorithm</dt><dd>{run.algorithm_version}</dd></>}
+                      {run.run_datetime && <><dt>Run date</dt><dd>{new Date(run.run_datetime).toLocaleString()}</dd></>}
+                      {run.hardware && <><dt>Hardware</dt><dd>{run.hardware}</dd></>}
+                      {run.description && <><dt>Description</dt><dd>{run.description}</dd></>}
+                      {run.notes && <><dt>Notes</dt><dd>{run.notes}</dd></>}
+                    </dl>
+                    <RunStepsList key={run.id} stepsConfig={run.steps_config} />
+                  </div>
+                  <div className="run-section-title">Binders</div>
+                  <BindersTable binders={sorted} runCifPath={run.cif_path} />
+                </>
+              );
             })()}
           </div>
         </div>
@@ -236,11 +419,21 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
         </div>
         {hasCifs ? (
           <div className="cif-modal-viewers">
-            {runCifPath && (
+            {runCifPath ? (
               <CifViewer cifPath={runCifPath} label="Target protein" />
+            ) : (
+              <div className="cif-viewer-wrap">
+                <div className="cif-viewer-label">Target protein</div>
+                <div className="cif-viewer-placeholder">No CIF file available</div>
+              </div>
             )}
-            {binder.cif_path && (
+            {binder.cif_path ? (
               <CifViewer cifPath={binder.cif_path} label="Target + Binder" />
+            ) : (
+              <div className="cif-viewer-wrap">
+                <div className="cif-viewer-label">Target + Binder</div>
+                <div className="cif-viewer-placeholder">No CIF file available</div>
+              </div>
             )}
           </div>
         ) : (
@@ -294,6 +487,25 @@ function BinderSortIcon({ active, dir }: { active: boolean; dir: BinderSortDir }
 const PAGE_SIZES = [20, 50, 100] as const;
 type PageSize = typeof PAGE_SIZES[number];
 
+interface BinderColumn {
+  id: string;
+  label: string;
+  sortKey?: BinderSortKey;
+  cellClassName?: string;
+  render: (b: Binder) => React.ReactNode;
+}
+
+const BINDER_COLUMNS: BinderColumn[] = [
+  { id: "rank",     label: "Rank",          sortKey: "rank",    render: (b) => b.final_rank ?? "—" },
+  { id: "quality",  label: "Quality Score", sortKey: "quality", render: (b) => b.quality_score != null ? b.quality_score.toFixed(3) : "—" },
+  { id: "iptm",     label: "iPTM",          sortKey: "iptm",    render: (b) => b.design_to_target_iptm != null ? b.design_to_target_iptm.toFixed(3) : "—" },
+  { id: "sequence", label: "Sequence",      cellClassName: "sequence", render: (b) => b.binder_sequence },
+  { id: "length",   label: "Length (aa)",   sortKey: "length",  render: (b) => b.binder_length ?? "—" },
+  { id: "status",   label: "Status",        sortKey: "status",  render: (b) => b.status ? <span className={`status-pill ${statusClass(b.status)}`}>{b.status}</span> : "—" },
+];
+
+const DEFAULT_VISIBLE_BINDER_COLUMNS: string[] = BINDER_COLUMNS.map((c) => c.id);
+
 function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: string | null }) {
   const [selectedBinder, setSelectedBinder] = useState<Binder | null>(null);
   const [sortKey, setSortKey] = useState<BinderSortKey>("rank");
@@ -301,6 +513,57 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSize>(20);
+  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
+    () => new Set(DEFAULT_VISIBLE_BINDER_COLUMNS)
+  );
+  const [columnsMenuOpen, setColumnsMenuOpen] = useState(false);
+  const columnsMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!columnsMenuOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (columnsMenuRef.current && !columnsMenuRef.current.contains(e.target as Node)) {
+        setColumnsMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [columnsMenuOpen]);
+
+  function toggleColumn(id: string) {
+    setVisibleColumns((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      // Ensure at least one column stays visible
+      if (next.size === 0) next.add(id);
+      return next;
+    });
+  }
+
+  const metricColumns: BinderColumn[] = useMemo(() => {
+    const keys = new Set<string>();
+    for (const b of binders) {
+      if (!b.metrics) continue;
+      for (const k of Object.keys(b.metrics)) {
+        if (k === "id" || k === "file_name") continue;
+        keys.add(k);
+      }
+    }
+    return Array.from(keys).sort().map((k) => ({
+      id: `metric:${k}`,
+      label: k,
+      render: (b: Binder) => {
+        const v = b.metrics?.[k];
+        return v == null || v === "" ? "—" : String(v);
+      },
+    }));
+  }, [binders]);
+
+  const allColumns = useMemo(
+    () => [...BINDER_COLUMNS, ...metricColumns],
+    [metricColumns]
+  );
+  const activeColumns = allColumns.filter((c) => visibleColumns.has(c.id));
 
   function handleSort(key: BinderSortKey) {
     if (sortKey === key) {
@@ -353,27 +616,72 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
         <span className="binder-filter-count">
           {sorted.length} binder{sorted.length !== 1 ? "s" : ""}
         </span>
+        <div className="binder-columns-menu" ref={columnsMenuRef}>
+          <button
+            className="binder-columns-btn"
+            onClick={() => setColumnsMenuOpen((o) => !o)}
+            aria-expanded={columnsMenuOpen}
+          >
+            Columns ▾
+          </button>
+          {columnsMenuOpen && (
+            <div className="binder-columns-popover">
+              <div className="binder-columns-header">
+                <button
+                  className="binder-columns-reset"
+                  onClick={() => setVisibleColumns(new Set(DEFAULT_VISIBLE_BINDER_COLUMNS))}
+                >
+                  Reset to default
+                </button>
+              </div>
+              <div className="binder-columns-group-label">Standard</div>
+              {BINDER_COLUMNS.map((col) => (
+                <label key={col.id} className="binder-columns-row">
+                  <input
+                    type="checkbox"
+                    checked={visibleColumns.has(col.id)}
+                    onChange={() => toggleColumn(col.id)}
+                  />
+                  <span>{col.label}</span>
+                </label>
+              ))}
+              {metricColumns.length > 0 && (
+                <>
+                  <div className="binder-columns-group-label">Metrics</div>
+                  {metricColumns.map((col) => (
+                    <label key={col.id} className="binder-columns-row">
+                      <input
+                        type="checkbox"
+                        checked={visibleColumns.has(col.id)}
+                        onChange={() => toggleColumn(col.id)}
+                      />
+                      <span>{col.label}</span>
+                    </label>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <table>
         <thead>
           <tr>
-            <th className="th-sortable" onClick={() => handleSort("rank")}>
-              Rank <BinderSortIcon active={sortKey === "rank"} dir={sortDir} />
-            </th>
-            <th className="th-sortable" onClick={() => handleSort("quality")}>
-              Quality Score <BinderSortIcon active={sortKey === "quality"} dir={sortDir} />
-            </th>
-            <th className="th-sortable" onClick={() => handleSort("iptm")}>
-              iPTM <BinderSortIcon active={sortKey === "iptm"} dir={sortDir} />
-            </th>
-            <th>Sequence</th>
-            <th className="th-sortable" onClick={() => handleSort("length")}>
-              Length (aa) <BinderSortIcon active={sortKey === "length"} dir={sortDir} />
-            </th>
-            <th className="th-sortable" onClick={() => handleSort("status")}>
-              Status <BinderSortIcon active={sortKey === "status"} dir={sortDir} />
-            </th>
+            {activeColumns.map((col) =>
+              col.sortKey ? (
+                <th
+                  key={col.id}
+                  className="th-sortable"
+                  onClick={() => handleSort(col.sortKey!)}
+                >
+                  {col.label}{" "}
+                  <BinderSortIcon active={sortKey === col.sortKey} dir={sortDir} />
+                </th>
+              ) : (
+                <th key={col.id}>{col.label}</th>
+              )
+            )}
           </tr>
         </thead>
         <tbody>
@@ -384,16 +692,11 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
               onClick={() => setSelectedBinder(b)}
               title="Click to view structures"
             >
-              <td>{b.final_rank ?? "—"}</td>
-              <td>{b.quality_score != null ? b.quality_score.toFixed(3) : "—"}</td>
-              <td>{b.design_to_target_iptm != null ? b.design_to_target_iptm.toFixed(3) : "—"}</td>
-              <td className="sequence">{b.binder_sequence}</td>
-              <td>{b.binder_length ?? "—"}</td>
-              <td>
-                {b.status ? (
-                  <span className={`status-pill ${statusClass(b.status)}`}>{b.status}</span>
-                ) : "—"}
-              </td>
+              {activeColumns.map((col) => (
+                <td key={col.id} className={col.cellClassName}>
+                  {col.render(b)}
+                </td>
+              ))}
             </tr>
           ))}
         </tbody>

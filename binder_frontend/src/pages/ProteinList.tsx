@@ -7,6 +7,9 @@ import ProteinSearchBar from "../components/ProteinSearchBar";
 type SortKey = "uniprot" | "name" | "gene" | "organism" | "length";
 type SortDir = "asc" | "desc";
 
+const PAGE_SIZES = [20, 50, 100] as const;
+type PageSize = typeof PAGE_SIZES[number];
+
 function matches(p: Protein, q: string): boolean {
   const lq = q.toLowerCase();
   return (
@@ -33,6 +36,8 @@ export default function ProteinList() {
   const [maxLength, setMaxLength] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("uniprot");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<PageSize>(20);
 
   useEffect(() => {
     getProteins()
@@ -43,6 +48,7 @@ export default function ProteinList() {
 
   function handleQueryChange(q: string) {
     setQuery(q);
+    setPage(1);
     if (q.trim()) {
       setSearchParams({ q: q.trim() }, { replace: true });
     } else {
@@ -57,6 +63,7 @@ export default function ProteinList() {
       setSortKey(key);
       setSortDir("asc");
     }
+    setPage(1);
   }
 
   function toggleOrganism(org: string) {
@@ -65,6 +72,7 @@ export default function ProteinList() {
       next.has(org) ? next.delete(org) : next.add(org);
       return next;
     });
+    setPage(1);
   }
 
   const organisms = useMemo(
@@ -110,10 +118,15 @@ export default function ProteinList() {
 
   const hasFilters = selectedOrganisms.size > 0 || minLength !== "" || maxLength !== "";
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+
   function clearFilters() {
     setSelectedOrganisms(new Set());
     setMinLength("");
     setMaxLength("");
+    setPage(1);
   }
 
   return (
@@ -159,7 +172,7 @@ export default function ProteinList() {
                 placeholder="Min"
                 value={minLength}
                 min={0}
-                onChange={(e) => setMinLength(e.target.value)}
+                onChange={(e) => { setMinLength(e.target.value); setPage(1); }}
               />
               <span className="filter-range-sep">–</span>
               <input
@@ -168,7 +181,7 @@ export default function ProteinList() {
                 placeholder="Max"
                 value={maxLength}
                 min={0}
-                onChange={(e) => setMaxLength(e.target.value)}
+                onChange={(e) => { setMaxLength(e.target.value); setPage(1); }}
               />
             </div>
           </div>
@@ -211,7 +224,7 @@ export default function ProteinList() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((p) => (
+                  {visible.map((p) => (
                     <tr key={p.id}>
                       <td><Link to={`/proteins/${p.id}`}>{p.uniprot_id ?? "—"}</Link></td>
                       <td>{p.gene_name ?? "—"}</td>
@@ -222,6 +235,42 @@ export default function ProteinList() {
                   ))}
                 </tbody>
               </table>
+
+              <div className="binder-pagination">
+                <div className="binder-page-size-group">
+                  <span className="binder-page-size-label">Show:</span>
+                  {PAGE_SIZES.map((s) => (
+                    <button
+                      key={s}
+                      className={`binder-page-size-btn${pageSize === s ? " active" : ""}`}
+                      onClick={() => { setPageSize(s); setPage(1); }}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+                {totalPages > 1 && (
+                  <div className="binder-page-nav">
+                    <button
+                      className="binder-page-btn"
+                      onClick={() => setPage((p) => p - 1)}
+                      disabled={safePage === 1}
+                    >
+                      ← Prev
+                    </button>
+                    <span className="binder-page-info">
+                      Page {safePage} of {totalPages}
+                    </span>
+                    <button
+                      className="binder-page-btn"
+                      onClick={() => setPage((p) => p + 1)}
+                      disabled={safePage === totalPages}
+                    >
+                      Next →
+                    </button>
+                  </div>
+                )}
+              </div>
             </>
           )}
         </div>
