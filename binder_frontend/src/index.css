@@ -213,13 +213,18 @@ h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter
 
 /* ── Home header image ── */
 .home-header-img-wrap {
-  margin: -2rem -1.5rem 0;
+  width: 100vw;
+  position: relative;
+  left: 50%;
+  margin-left: -50vw;
+  margin-top: -2rem;
   line-height: 0;
 }
 
 .home-header-img {
   width: 100%;
   height: auto;
+  object-fit: cover;
   display: block;
 }
 
