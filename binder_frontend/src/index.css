@@ -119,7 +119,6 @@ a:hover { text-decoration: underline; }
 .site-footer {
   background: var(--navy);
   color: rgba(255,255,255,0.75);
-  margin-top: 4rem;
   padding: 3rem 1.5rem 0;
 }
 
@@ -211,6 +210,11 @@ h2 { margin-top: 2rem; }
 h3 { margin: 0 0 0.75rem; }
 h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; color: #555; }
 
+/* ── Home page ── */
+.page-main:has(.home-page) {
+  background: #cbd5e1;
+}
+
 /* ── Home header image ── */
 .home-header-img-wrap {
   width: 100vw;
@@ -245,7 +249,8 @@ h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter
 .hero-sub {
   color: #666;
   font-size: 1rem;
-  margin: 0 0 1.75rem;
+  font-weight: 500;
+  margin: 0 0 1rem;
 }
 
 .hero-search-wrap {
@@ -263,12 +268,12 @@ h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter
   border-radius: 99px;
   outline: none;
   background: #fff;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: box-shadow 0.15s;
 }
+
+.hero-search-input:hover,
 .hero-search-input:focus {
-  border-color: #2563eb;
-  box-shadow: 0 2px 12px rgba(37,99,235,0.15);
+  box-shadow: 0 4px 16px rgba(15, 113, 115, 0.35);
 }
 
 .hero-examples {
@@ -282,22 +287,34 @@ h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter
 }
 
 .hero-examples-label {
-  color: #aaa;
+  color: #666;
+  font-size: 1.1rem;
+}
+
+/* ── Shared pill button ── */
+.pill-btn {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 0.3rem 0.85rem;
+  border: 1px solid var(--gray-border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--teal);
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.pill-btn:hover {
+  background: var(--teal-light);
+  text-decoration: none;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(15, 113, 115, 0.2);
 }
 
 .hero-example-chip {
-  background: none;
-  border: 1px solid #d1d5db;
-  border-radius: 99px;
-  padding: 0.2rem 0.75rem;
-  font-size: 0.82rem;
-  color: #2563eb;
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
-}
-.hero-example-chip:hover {
-  background: #eff6ff;
-  border-color: #93c5fd;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.95rem;
 }
 
 .search-result-count {
@@ -314,10 +331,16 @@ h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter
 }
 
 .back-link-inline {
-  color: #2563eb;
-  font-size: 0.9rem;
+  gap: 0.35rem;
+  font-size: 0.85rem;
   white-space: nowrap;
   flex-shrink: 0;
+  padding: 0.3rem 0.8rem;
+}
+
+/* leftward nudge reads as "go back" */
+.back-link-inline:hover {
+  transform: translateX(-2px);
 }
 
 .hero-page {
@@ -332,12 +355,18 @@ h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter
   margin-top: 1.5rem;
   background: none;
   border: none;
-  color: #2563eb;
-  font-size: 0.9rem;
+  color: var(--teal);
+  font-weight: 600;
+  font-size: 1.25rem;
   cursor: pointer;
-  padding: 0;
+  padding: 0.4rem 0.9rem;
+  border-radius: 8px;
+  transition: box-shadow 0.15s ease;
 }
-.hero-browse-btn:hover { text-decoration: underline; }
+.hero-browse-btn:hover {
+  text-decoration: none;
+  box-shadow: 0 2px 10px rgba(15, 113, 115, 0.25);
+}
 
 /* ── Home stats summary ── */
 .home-stats {
@@ -361,18 +390,18 @@ h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter
 }
 
 .home-stat-value {
-  font-size: 1.75rem;
+  font-size: 2.25rem;
   font-weight: 700;
-  color: #1d4ed8;
+  color: var(--teal);
   line-height: 1;
 }
 
 .home-stat-label {
-  font-size: 0.78rem;
+  font-size: 0.85rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #888;
+  color: var(--gray-text);
 }
 
 /* ── About page ── */
@@ -647,18 +676,6 @@ dd { margin: 0; word-break: break-word; }
 }
 
 .pd-chain-label { font-size: 0.9rem; font-weight: 600; color: #333; }
-
-.pd-copy-btn {
-  font-size: 0.82rem;
-  padding: 0.3rem 0.85rem;
-  border: 1px solid #2563eb;
-  border-radius: 4px;
-  background: #fff;
-  color: #2563eb;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.pd-copy-btn:hover { background: #eff6ff; }
 
 .pd-seq-block {
   padding: 1rem 1.25rem;

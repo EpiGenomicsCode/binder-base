@@ -202,7 +202,7 @@ export default function ProteinDetailPage() {
   return (
     <div>
       <div className="pd-topbar">
-        <Link to="/proteins" className="back-link-inline">← All Proteins</Link>
+        <Link to="/proteins" className="pill-btn back-link-inline">← All Proteins</Link>
         <ProteinSearchBar
           value={searchQuery}
           onChange={setSearchQuery}
@@ -252,7 +252,7 @@ export default function ProteinDetailPage() {
           <span className="pd-chain-label">
             A | 1: {protein.protein_name ?? protein.uniprot_id}
           </span>
-          <button className="pd-copy-btn" onClick={copySequence}>
+          <button className="pill-btn pd-copy-btn" onClick={copySequence}>
             {copied ? "Copied!" : "Copy sequence"}
           </button>
         </div>
@@ -328,7 +328,7 @@ export default function ProteinDetailPage() {
                               <div className="pd-seq-header">
                                 <span className="pd-chain-label">SEQUENCE</span>
                                 <button
-                                  className="pd-copy-btn"
+                                  className="pill-btn pd-copy-btn"
                                   onClick={() => copyTargetSequence(run.target_sequence!)}
                                 >
                                   {copiedTarget ? "Copied!" : "Copy sequence"}
