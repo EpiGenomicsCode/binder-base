@@ -384,6 +384,8 @@ interface BinderModalProps {
 }
 
 function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
+  const [copied, setCopied] = useState(false);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -391,6 +393,13 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  function copySequence() {
+    navigator.clipboard.writeText(binder.binder_sequence).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
 
   const hasCifs = runCifPath || binder.cif_path;
 
@@ -407,6 +416,12 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
           <div className="cif-modal-header-right">
             <button className="cif-modal-close" onClick={onClose}>✕</button>
           </div>
+        </div>
+        <div className="cif-modal-seq-header">
+          <span className="cif-modal-seq-label">SEQUENCE</span>
+          <button className="pill-btn pd-copy-btn" onClick={copySequence}>
+            {copied ? "Copied!" : "Copy sequence"}
+          </button>
         </div>
         <div className="cif-modal-sequence">
           {formatSequence(binder.binder_sequence).map(({ lineNum, blocks }) => (
