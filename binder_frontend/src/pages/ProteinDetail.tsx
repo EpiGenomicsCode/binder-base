@@ -317,7 +317,7 @@ export default function ProteinDetailPage() {
                     <div className="run-target-body">
                       <div className="run-target-cif">
                         {run.cif_path
-                          ? <CifViewer cifPath={run.cif_path} label="AlphaFold Structure" />
+                          ? <CifViewer cifPath={run.cif_path} label="TARGET STRUCTURE" />
                           : <p className="cif-modal-empty">No structure available.</p>
                         }
                       </div>
@@ -326,7 +326,7 @@ export default function ProteinDetailPage() {
                           ? (
                             <>
                               <div className="pd-seq-header">
-                                <span className="pd-chain-label">SEQUENCE</span>
+                                <span className="pd-chain-label">TARGET SEQUENCE</span>
                                 <button
                                   className="pill-btn pd-copy-btn"
                                   onClick={() => copyTargetSequence(run.target_sequence!)}
