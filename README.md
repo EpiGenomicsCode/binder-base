@@ -125,9 +125,6 @@ files are located by globbing `rank*_<file_name>` recursively and matching the f
 `rank{final_rank}_{file_name}` (the rank may be zero-padded to any width, e.g.
 `rank1_`, `rank01_`, `rank001_`).
 
-**Per-design CIF filename** must start with `rank`, followed by optional leading zeros,
-followed by rank number, underscore, and then the exact filename.
-
 
 ### The designs CSV
 
