@@ -46,6 +46,14 @@ export default function ProteinList() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Sync the search box when the ?q= param changes externally (e.g. navbar search
+  // while already on this page). Keep the user's raw text if it only differs by
+  // surrounding whitespace, so typing isn't disrupted.
+  const qParam = searchParams.get("q") ?? "";
+  useEffect(() => {
+    setQuery((prev) => (prev.trim() === qParam ? prev : qParam));
+  }, [qParam]);
+
   function handleQueryChange(q: string) {
     setQuery(q);
     setPage(1);
