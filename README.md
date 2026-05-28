@@ -70,47 +70,92 @@ The following models are registered:
 
 ## Run Directory Convention & Import Command
 
+The `import_run` command scans `MEDIA_ROOT/runs/` for run directories not yet in the
+database and imports each one. This section documents exactly how a run directory is
+read so you can lay one out correctly.
+
 ### Directory naming
 
-Run directories must be placed under `MEDIA_ROOT/runs/` and named with the pattern:
+Each run directory lives directly under `MEDIA_ROOT/runs/` and is named:
 
 ```
 <UNIPROT_ID>-<ALGORITHM_VERSION>-<YYYYMMDD>
 ```
 
-| Part | Description | Example |
-|------|-------------|---------|
-| `UNIPROT_ID` | UniProt accession (uppercase alphanumeric) | `P12345` |
-| `ALGORITHM_VERSION` | Algorithm name and version (letters, digits, underscores, hyphens) | `rfdesign_v2` |
-| `YYYYMMDD` | Run date | `20260330` |
+The name is parsed with the regex `^([A-Z0-9]+)-(.+)-(\d{8})$`, which determines the
+three fields as follows:
 
-Full example: `P12345-rfdesign_v2-20260330`
+| Part | How it's determined | Example |
+|------|---------------------|---------|
+| `UNIPROT_ID` | The leading run of **uppercase letters/digits** up to the first hyphen. No lowercase, no hyphens. | `P12345` |
+| `ALGORITHM_VERSION` | Everything **between** the UniProt ID and the trailing date. It *may itself contain hyphens* — the date is anchored to the end, so only the last 8 digits are treated as the date and the first token as the UniProt ID. | `rfdesign_v2`, `af3-finetune-v2` |
+| `YYYYMMDD` | The trailing **8 digits**, parsed as a calendar date (`%Y%m%d`). | `20260330` |
+
+Full example: `P12345-rfdesign_v2-20260330` → UniProt `P12345`, algorithm `rfdesign_v2`, date 2026-03-30.
 
 ### Required directory structure
 
 ```
 MEDIA_ROOT/runs/
   P12345-rfdesign_v2-20260330/
-    *.cif                        # original target structure (one file)
-    final_ranked_designs/
-      *.csv                      # ranked binder designs (one file)
-      **/rank001_*.cif           # per-design CIF files
+    *.cif                        # target structure — exactly one .cif in the run root
+    steps.yaml                   # optional pipeline config (see below)
+    config/                      # optional configs referenced from steps.yaml
+    final_ranked_designs/        # REQUIRED
+      *.csv                      # binder table — first *.csv in this folder is used
+      */rank001_<file_name>      # per-design CIF files, matched by rank + filename
 ```
 
-The per-design CIF files must follow the naming pattern rank{final_rank:03d}_{file_name}, where final_rank and file_name are specified in metadata CSV file.
+**Target structure CIF (run root).** The importer globs `*.cif` in the run directory
+root and uses it as the run's target structure, parsing the target sequence from its
+`_entity_poly` record. Keep **exactly one** `.cif` here:
+- **None** → the run still imports, but with no target structure and no target sequence.
+- **More than one** → the *first match in glob order* is used (order is not guaranteed),
+  so the chosen file is effectively arbitrary. Always keep a single copy.
 
-The CSV must contain at minimum a `sequence` column. Supported columns and their mapping to database fields:
+**`steps.yaml` (optional).** If present and valid, it is stored as the run's
+`steps_config`. Any nested `config` / `config_file` / `config_path` string values are
+replaced inline with the parsed contents of the referenced file (YAML or JSON),
+resolved relative to the run directory — this is what the `config/` folder is for. A
+missing or unparseable `steps.yaml` is stored as null and does not stop the import.
+
+**`final_ranked_designs/` (required).** Must exist, or the directory is skipped (see
+below). The **first** `*.csv` in this folder is read as the binder table; per-design CIF
+files are located by globbing `rank*_<file_name>` recursively and matching the filename
+`rank{final_rank}_{file_name}` (the rank may be zero-padded to any width, e.g.
+`rank1_`, `rank01_`, `rank001_`).
+
+**Per-design CIF filename** must start with `rank`, followed by optional leading zeros,
+followed by rank number, underscore, and then the exact filename.
+
+
+### The designs CSV
+
+The CSV must contain at minimum a `sequence` column (rows without it are skipped).
+Recognized columns and their mapping to database fields:
 
 | CSV column | DB field |
 |---|---|
-| `sequence` | `binder_sequence` |
+| `sequence` | `binder_sequence` (its length → `binder_length`) |
 | `final_rank` | `final_rank` |
 | `quality_score` | `quality_score` |
 | `design_to_target_iptm` | `design_to_target_iptm` |
-| `pass_filters (TRUE or FALSE)` | `status (success or failed)` |
-| `pass_*_filter` | `failure_reason (filters it failed to pass)` |
+| `pass_filters` (`TRUE`/`FALSE`) | `status` (`success` / `failed`) |
+| `pass_*_filter` (`FALSE`) | contributes to `failure_reason` (which filters failed) |
+| `file_name` | used (with `final_rank`) to locate the per-design CIF |
 
 Any additional columns are stored in the `metrics` JSON field.
+
+### When directories are skipped
+
+A directory is skipped (logged, and the command continues to the next one) when:
+
+- It is **already imported** — its path matches an existing `BinderRun.run_dir`.
+- Its name **does not match** the `<UNIPROT_ID>-<ALGORITHM_VERSION>-<YYYYMMDD>` pattern.
+- It has **no `final_ranked_designs/` folder**.
+
+Non-directory entries under `runs/` are ignored. A run with no root `.cif` or no CSV is
+*not* skipped — it imports with the corresponding fields left empty.
 
 ### Running the import command
 
@@ -120,11 +165,17 @@ From `binder_backend/`:
 python manage.py import_run
 ```
 
-The command scans `MEDIA_ROOT/runs/`, skips directories already in the database or that don't match the naming pattern, and for each new run:
+For each new run directory the command:
 
-1. Looks up or creates the `Protein` record by querying the AlphaFold API (sequence, gene name, organism, structure CIF, PAE JSON) and UniProt API (biological function). The AlphaFold CIF and PAE JSON files are downloaded to `MEDIA_ROOT/proteins/{uniprot_id}/`.
-2. Creates a `BinderRun` record.
-3. Bulk-creates `Binder` records from the CSV.
+1. **Resolves the `Protein`** by UniProt ID. If it already exists it is reused; otherwise
+   the AlphaFold API (sequence, gene name, organism, structure CIF, PAE JSON) and UniProt
+   API (biological function) are queried, the CIF and PAE JSON are downloaded to
+   `MEDIA_ROOT/proteins/{uniprot_id}/`, and the `Protein` is created.
+2. **Creates a `BinderRun`** (algorithm/version, date, target CIF path, target sequence,
+   `steps_config`).
+3. **Bulk-creates `Binder` records** from the CSV, linking each to its per-design CIF.
+
+A summary line reports the number of runs imported and skipped.
 
 ---
 
@@ -295,7 +346,7 @@ cd binder_frontend
 npm install
 npm run build
 
-# Backend — update deps, apply migrations and static files if needed
+# Backend — update dependencies, apply database schema migrations and collect static files if needed
 cd ../binder_backend
 source ../../venv/bin/activate
 pip install -r requirements.txt
