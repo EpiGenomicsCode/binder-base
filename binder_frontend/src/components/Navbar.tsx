@@ -1,14 +1,21 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 export default function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
   const showSearch = location.pathname !== "/";
+
+  // Close the mobile menu whenever the route changes.
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname]);
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
+    setMenuOpen(false);
     navigate(query.trim() ? `/proteins?q=${encodeURIComponent(query.trim())}` : "/proteins");
   }
 
@@ -28,7 +35,18 @@ export default function Navbar() {
           <span className="navbar-logo-text">Binder Base</span>
         </Link>
 
-        <div className="navbar-right">
+        <button
+          className={`navbar-toggle${menuOpen ? " open" : ""}`}
+          aria-label="Toggle navigation menu"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((o) => !o)}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
+
+        <div className={`navbar-right${menuOpen ? " open" : ""}`}>
           {showSearch && (
             <form className="navbar-search-form" onSubmit={handleSearch}>
               <input
@@ -40,15 +58,16 @@ export default function Navbar() {
               />
             </form>
           )}
-          <Link to="/" className="navbar-link">Home</Link>
-          <Link to="/proteins" className="navbar-link">Browse</Link>
-          <Link to="/structure-prep" className="navbar-link">Structure Prep</Link>
-          <Link to="/about" className="navbar-link">About</Link>
+          <Link to="/" className="navbar-link" onClick={() => setMenuOpen(false)}>Home</Link>
+          <Link to="/proteins" className="navbar-link" onClick={() => setMenuOpen(false)}>Browse</Link>
+          <Link to="/structure-prep" className="navbar-link" onClick={() => setMenuOpen(false)}>Structure Prep</Link>
+          <Link to="/about" className="navbar-link" onClick={() => setMenuOpen(false)}>About</Link>
           <a
             href="/api/docs"
             className="navbar-link"
             target="_blank"
             rel="noreferrer"
+            onClick={() => setMenuOpen(false)}
           >
             API Docs
           </a>

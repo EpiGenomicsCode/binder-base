@@ -22,7 +22,7 @@ export default function App() {
       <ScrollToTop />
       <Navbar />
       <main className="page-main">
-        <div className="container">
+        <div className="app-container">
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/proteins" element={<ProteinList />} />

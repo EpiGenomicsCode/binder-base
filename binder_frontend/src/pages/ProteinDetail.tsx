@@ -286,8 +286,8 @@ export default function ProteinDetailPage() {
       {protein.runs.length === 0 ? (
         <p className="status">No binder runs yet.</p>
       ) : (
-        <div className="pd-body">
-          <aside className="pd-run-nav">
+        <div className="pd-body row g-4">
+          <aside className="pd-run-nav col-12 col-lg-3">
             {protein.runs.map((run) => (
               <button
                 key={run.id}
@@ -303,7 +303,7 @@ export default function ProteinDetailPage() {
             ))}
           </aside>
 
-          <div className="pd-run-content">
+          <div className="pd-run-content col-12 col-lg-9">
             {(() => {
               const run = protein.runs.find((r) => r.id === selectedRunId);
               if (!run) return null;
@@ -680,7 +680,8 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
         </div>
       </div>
 
-      <table>
+      <div className="binder-table-wrap">
+        <table>
         <thead>
           <tr>
             {activeColumns.map((col) =>
@@ -715,7 +716,8 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
             </tr>
           ))}
         </tbody>
-      </table>
+        </table>
+      </div>
 
       <div className="binder-pagination">
         <div className="binder-page-size-group">

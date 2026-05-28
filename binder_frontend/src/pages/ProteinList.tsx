@@ -136,9 +136,9 @@ export default function ProteinList() {
         <ProteinSearchBar value={query} onChange={handleQueryChange} compact />
       </div>
 
-      <div className="list-body">
+      <div className="list-body row g-4">
         {/* ── Sidebar ── */}
-        <aside className="filter-sidebar">
+        <aside className="filter-sidebar col-12 col-lg-3">
           <div className="filter-sidebar-header">
             <span className="filter-sidebar-title">Filters</span>
             {hasFilters && (
@@ -188,7 +188,7 @@ export default function ProteinList() {
         </aside>
 
         {/* ── Results ── */}
-        <div className="list-results">
+        <div className="list-results col-12 col-lg-9">
           {loading ? (
             <p className="status">Loading…</p>
           ) : error ? (
