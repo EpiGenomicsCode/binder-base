@@ -46,6 +46,14 @@ export default function ProteinList() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Sync the search box when the ?q= param changes externally (e.g. navbar search
+  // while already on this page). Keep the user's raw text if it only differs by
+  // surrounding whitespace, so typing isn't disrupted.
+  const qParam = searchParams.get("q") ?? "";
+  useEffect(() => {
+    setQuery((prev) => (prev.trim() === qParam ? prev : qParam));
+  }, [qParam]);
+
   function handleQueryChange(q: string) {
     setQuery(q);
     setPage(1);
@@ -136,9 +144,9 @@ export default function ProteinList() {
         <ProteinSearchBar value={query} onChange={handleQueryChange} compact />
       </div>
 
-      <div className="list-body">
+      <div className="list-body row g-4">
         {/* ── Sidebar ── */}
-        <aside className="filter-sidebar">
+        <aside className="filter-sidebar col-12 col-lg-3">
           <div className="filter-sidebar-header">
             <span className="filter-sidebar-title">Filters</span>
             {hasFilters && (
@@ -188,7 +196,7 @@ export default function ProteinList() {
         </aside>
 
         {/* ── Results ── */}
-        <div className="list-results">
+        <div className="list-results col-12 col-lg-9">
           {loading ? (
             <p className="status">Loading…</p>
           ) : error ? (

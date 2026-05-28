@@ -53,7 +53,7 @@ export default function ProteinSearchBar({ value, onChange, onSubmit, examples, 
           {examples.map((ex) => (
             <button
               key={ex}
-              className="hero-example-chip"
+              className="pill-btn hero-example-chip"
               onClick={() => {
                 onChange(ex);
                 inputRef.current?.focus();
