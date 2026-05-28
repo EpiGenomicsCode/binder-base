@@ -282,3 +282,28 @@ python manage.py createsuperuser
 ```
 
 Django admin is at `https://your-domain.example.com/admin/`.
+
+### 7. Deploying an update
+
+To ship new code to a running deployment, pull the changes, rebuild the frontend, apply backend changes, and restart gunicorn. Run from the repo root (`/opt/binder/binder-base/`):
+
+```bash
+git pull
+
+# Frontend — reinstall deps and rebuild the SPA
+cd binder_frontend
+npm install
+npm run build
+
+# Backend — update deps, apply migrations and static files if needed
+cd ../binder_backend
+source ../../venv/bin/activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py collectstatic --no-input
+
+# Restart the app server (adjust to your service name)
+sudo systemctl restart gunicorn
+```
+
+nginx serves the new `binder_frontend/dist/` build and static files directly, so no nginx reload is needed unless you changed `nginx.conf`.
