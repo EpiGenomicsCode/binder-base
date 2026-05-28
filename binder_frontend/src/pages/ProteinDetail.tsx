@@ -29,6 +29,162 @@ function formatSequence(seq: string): { lineNum: number; blocks: string[] }[] {
   return lines;
 }
 
+// Sequence rendered as per-residue spans, hover-linked to a structure viewer:
+// hovering a residue reports its number, and the residue matching `hoverResno`
+// is highlighted. Residue number is 1-based (== label_seq_id for full models).
+function LinkedSequenceBlock({
+  seq,
+  hoverResno,
+  onHover,
+  className = "pd-seq-block",
+}: {
+  seq: string;
+  hoverResno: number | null;
+  onHover: (resno: number | null) => void;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      {formatSequence(seq).map(({ lineNum, blocks }) => (
+        <div key={lineNum} className="seq-line">
+          <span className="seq-num">{lineNum}</span>
+          <span className="seq-blocks">
+            {blocks.map((block, bi) => (
+              <span key={bi}>
+                {block.split("").map((aa, ci) => {
+                  const resno = lineNum + bi * 10 + ci;
+                  return (
+                    <span
+                      key={ci}
+                      className={`seq-res${hoverResno === resno ? " seq-res-hover" : ""}`}
+                      onMouseEnter={() => onHover(resno)}
+                      onMouseLeave={() => onHover(null)}
+                    >
+                      {aa}
+                    </span>
+                  );
+                })}
+                {bi < blocks.length - 1 ? " " : ""}
+              </span>
+            ))}
+          </span>
+          <span className="seq-end">{Math.min(lineNum + 59, seq.length)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Protein sequence block + AlphaFold structure viewer, hover-linked: hovering a
+// residue in either highlights it in the other. Kept as its own component so
+// hover state changes don't re-render the rest of the page.
+function ProteinSequenceStructure({ protein }: { protein: ProteinDetail }) {
+  const [copied, setCopied] = useState(false);
+  const [hoverResno, setHoverResno] = useState<number | null>(null);
+
+  function copySequence() {
+    navigator.clipboard.writeText(protein.sequence).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <>
+      {/* ── Sequence ── */}
+      <div className="pd-seq-section">
+        <div className="pd-seq-header">
+          <span className="pd-chain-label">
+            A | 1: {protein.protein_name ?? protein.uniprot_id}
+          </span>
+          <button className="pill-btn pd-copy-btn" onClick={copySequence}>
+            {copied ? "Copied!" : "Copy sequence"}
+          </button>
+        </div>
+        <LinkedSequenceBlock
+          seq={protein.sequence}
+          hoverResno={hoverResno}
+          onHover={setHoverResno}
+        />
+      </div>
+
+      {/* ── Structure & PAE ── */}
+      {(protein.cif_path || protein.pae_json_path) && (
+        <div className="pd-structure-section">
+          <div className="pd-structure-plots">
+            {protein.pae_json_path && (
+              <PaeViewer paeJsonPath={protein.pae_json_path} />
+            )}
+            {protein.cif_path && (
+              <CifViewer
+                cifPath={protein.cif_path}
+                label="AlphaFold Structure"
+                highlightResidue={hoverResno}
+                onHoverResidue={setHoverResno}
+              />
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// Run's target structure viewer + target sequence, hover-linked the same way.
+function RunTargetStructure({ run }: { run: BinderRun }) {
+  const [copied, setCopied] = useState(false);
+  const [hoverResno, setHoverResno] = useState<number | null>(null);
+
+  function copy() {
+    if (!run.target_sequence) return;
+    navigator.clipboard.writeText(run.target_sequence).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <div className="run-target-section">
+      <div className="run-section-title">DESIGN TARGET PROTEIN STRUCTURE</div>
+      <div className="run-target-body">
+        <div className="run-target-cif">
+          {run.cif_path ? (
+            <CifViewer
+              cifPath={run.cif_path}
+              label="TARGET STRUCTURE"
+              highlightResidue={hoverResno}
+              onHoverResidue={setHoverResno}
+            />
+          ) : (
+            <p className="cif-modal-empty">No structure available.</p>
+          )}
+        </div>
+        <div className="run-target-seq">
+          {run.target_sequence ? (
+            <>
+              <div className="pd-seq-header">
+                <span className="pd-chain-label">TARGET SEQUENCE</span>
+                <button className="pill-btn pd-copy-btn" onClick={copy}>
+                  {copied ? "Copied!" : "Copy sequence"}
+                </button>
+              </div>
+              <LinkedSequenceBlock
+                seq={run.target_sequence}
+                hoverResno={hoverResno}
+                onHover={setHoverResno}
+              />
+            </>
+          ) : (
+            <p className="status" style={{ padding: "1rem 1.25rem" }}>
+              No sequence available.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function runLabel(run: BinderRun): string {
   if (run.description) return run.description;
   const parts = [run.algorithm_version, run.run_datetime ? new Date(run.run_datetime).toLocaleDateString() : null].filter(Boolean);
@@ -158,8 +314,6 @@ export default function ProteinDetailPage() {
   const [protein, setProtein] = useState<ProteinDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [copiedTarget, setCopiedTarget] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
@@ -178,21 +332,6 @@ export default function ProteinDetailPage() {
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [id]);
-
-  function copySequence() {
-    if (!protein) return;
-    navigator.clipboard.writeText(protein.sequence).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
-
-  function copyTargetSequence(seq: string) {
-    navigator.clipboard.writeText(seq).then(() => {
-      setCopiedTarget(true);
-      setTimeout(() => setCopiedTarget(false), 2000);
-    });
-  }
 
   if (loading) return <p className="status">Loading...</p>;
   if (error === "404") return <p className="status error">Protein not found.</p>;
@@ -246,40 +385,8 @@ export default function ProteinDetailPage() {
         </div>        
       </div>
       
-      {/* ── Sequence ── */}
-      <div className="pd-seq-section">
-        <div className="pd-seq-header">
-          <span className="pd-chain-label">
-            A | 1: {protein.protein_name ?? protein.uniprot_id}
-          </span>
-          <button className="pill-btn pd-copy-btn" onClick={copySequence}>
-            {copied ? "Copied!" : "Copy sequence"}
-          </button>
-        </div>
-        <div className="pd-seq-block">
-          {formatSequence(protein.sequence).map(({ lineNum, blocks }) => (
-            <div key={lineNum} className="seq-line">
-              <span className="seq-num">{lineNum}</span>
-              <span className="seq-blocks">{blocks.join(" ")}</span>
-              <span className="seq-end">{Math.min(lineNum + 59, protein.sequence.length)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Structure & PAE ── */}
-      {(protein.cif_path || protein.pae_json_path) && (
-        <div className="pd-structure-section">
-          <div className="pd-structure-plots">
-            {protein.pae_json_path && (
-              <PaeViewer paeJsonPath={protein.pae_json_path} />
-            )}
-            {protein.cif_path && (
-              <CifViewer cifPath={protein.cif_path} label="AlphaFold Structure" />
-            )}
-          </div>
-        </div>
-      )}
+      {/* ── Sequence + Structure (hover-linked) ── */}
+      <ProteinSequenceStructure protein={protein} />
 
       {/* ── Runs + sidebar ── */}
       <h2 style={{ marginBottom: "0.75rem" }}>Binder Runs ({protein.runs.length})</h2>
@@ -312,47 +419,7 @@ export default function ProteinDetailPage() {
               );
               return (
                 <>
-                  <div className="run-target-section">
-                    <div className="run-section-title">DESIGN TARGET PROTEIN STRUCTURE</div>
-                    <div className="run-target-body">
-                      <div className="run-target-cif">
-                        {run.cif_path
-                          ? <CifViewer cifPath={run.cif_path} label="TARGET STRUCTURE" />
-                          : <p className="cif-modal-empty">No structure available.</p>
-                        }
-                      </div>
-                      <div className="run-target-seq">
-                        {run.target_sequence
-                          ? (
-                            <>
-                              <div className="pd-seq-header">
-                                <span className="pd-chain-label">TARGET SEQUENCE</span>
-                                <button
-                                  className="pill-btn pd-copy-btn"
-                                  onClick={() => copyTargetSequence(run.target_sequence!)}
-                                >
-                                  {copiedTarget ? "Copied!" : "Copy sequence"}
-                                </button>
-                              </div>
-                              <div className="pd-seq-block">
-                                {formatSequence(run.target_sequence).map(({ lineNum, blocks }) => (
-                                  <div key={lineNum} className="seq-line">
-                                    <span className="seq-num">{lineNum}</span>
-                                    <span className="seq-blocks">{blocks.join(" ")}</span>
-                                    <span className="seq-end">{Math.min(lineNum + 59, run.target_sequence!.length)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </>
-                          ) : (
-                            <p className="status" style={{ padding: "1rem 1.25rem" }}>
-                              No sequence available.
-                            </p>
-                          )
-                        }
-                      </div>
-                    </div>
-                  </div>
+                  <RunTargetStructure run={run} />
 
                   <div className="run-config-section">
                     <div className="run-section-title">Steps &amp; Configuration</div>
@@ -385,6 +452,7 @@ interface BinderModalProps {
 
 function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
   const [copied, setCopied] = useState(false);
+  const [hoverResno, setHoverResno] = useState<number | null>(null);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -423,19 +491,16 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
             {copied ? "Copied!" : "Copy sequence"}
           </button>
         </div>
-        <div className="cif-modal-sequence">
-          {formatSequence(binder.binder_sequence).map(({ lineNum, blocks }) => (
-            <div key={lineNum} className="seq-line">
-              <span className="seq-num">{lineNum}</span>
-              <span className="seq-blocks">{blocks.join(" ")}</span>
-              <span className="seq-end">{Math.min(lineNum + 59, binder.binder_sequence.length)}</span>
-            </div>
-          ))}
-        </div>
+        <LinkedSequenceBlock
+          className="cif-modal-sequence"
+          seq={binder.binder_sequence}
+          hoverResno={hoverResno}
+          onHover={setHoverResno}
+        />
         {hasCifs ? (
           <div className="cif-modal-viewers">
             {runCifPath ? (
-              <CifViewer cifPath={runCifPath} label="Target protein" />
+              <CifViewer cifPath={runCifPath} label="Target protein" showConfidence={false} />
             ) : (
               <div className="cif-viewer-wrap">
                 <div className="cif-viewer-label">Target protein</div>
@@ -443,7 +508,14 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
               </div>
             )}
             {binder.cif_path ? (
-              <CifViewer cifPath={binder.cif_path} label="Target + Binder" />
+              <CifViewer
+                cifPath={binder.cif_path}
+                label="Target + Binder"
+                showConfidence={false}
+                highlightResidue={hoverResno}
+                onHoverResidue={setHoverResno}
+                seqChainLength={binder.binder_length ?? binder.binder_sequence.length}
+              />
             ) : (
               <div className="cif-viewer-wrap">
                 <div className="cif-viewer-label">Target + Binder</div>
