@@ -152,6 +152,7 @@ function RunTargetStructure({ run }: { run: BinderRun }) {
             <CifViewer
               cifPath={run.cif_path}
               label="TARGET STRUCTURE"
+              coloring="hotspot"
               highlightResidue={hoverResno}
               onHoverResidue={setHoverResno}
             />
@@ -500,7 +501,7 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
         {hasCifs ? (
           <div className="cif-modal-viewers">
             {runCifPath ? (
-              <CifViewer cifPath={runCifPath} label="Target protein" showConfidence={false} />
+              <CifViewer cifPath={runCifPath} label="Target protein" coloring="none" />
             ) : (
               <div className="cif-viewer-wrap">
                 <div className="cif-viewer-label">Target protein</div>
@@ -511,7 +512,7 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
               <CifViewer
                 cifPath={binder.cif_path}
                 label="Target + Binder"
-                showConfidence={false}
+                coloring="none"
                 highlightResidue={hoverResno}
                 onHoverResidue={setHoverResno}
                 seqChainLength={binder.binder_length ?? binder.binder_sequence.length}
