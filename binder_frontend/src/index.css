@@ -642,6 +642,11 @@ tr:hover td { background: #fafafa; }
 .binder-table-wrap {
   overflow-x: auto;
 }
+/* Keep the current page visible but muted while the next one is fetched. */
+.binder-table-wrap.is-loading {
+  opacity: 0.55;
+  pointer-events: none;
+}
 @media (max-width: 767px) {
   .binder-table-wrap table {
     min-width: 560px;

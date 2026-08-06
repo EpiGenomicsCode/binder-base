@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { getProtein } from "../api/client";
+import { getProtein, getRunBinders } from "../api/client";
 import type { Binder, BinderRun, ProteinDetail } from "../types";
 import CifViewer from "../components/CifViewer";
 import PaeViewer from "../components/PaeViewer";
@@ -406,7 +406,7 @@ export default function ProteinDetailPage() {
                 }}
               >
                 {runLabel(run)}
-                <span className="run-nav-count">{run.binders.length}</span>
+                <span className="run-nav-count">{run.binder_count}</span>
               </button>
             ))}
           </aside>
@@ -415,9 +415,6 @@ export default function ProteinDetailPage() {
             {(() => {
               const run = protein.runs.find((r) => r.id === selectedRunId);
               if (!run) return null;
-              const sorted = [...run.binders].sort(
-                (a, b) => (a.final_rank ?? Infinity) - (b.final_rank ?? Infinity)
-              );
               return (
                 <>
                   <RunTargetStructure run={run} />
@@ -434,7 +431,8 @@ export default function ProteinDetailPage() {
                     <RunStepsList key={run.id} stepsConfig={run.steps_config} />
                   </div>
                   <div className="run-section-title">Binders</div>
-                  <BindersTable binders={sorted} runCifPath={run.cif_path} />
+                  {/* key resets table state (page, sort, filter) when the run changes */}
+                  <BindersTable key={run.id} runId={run.id} runCifPath={run.cif_path} />
                 </>
               );
             })()}
@@ -594,7 +592,7 @@ const BINDER_COLUMNS: BinderColumn[] = [
 
 const DEFAULT_VISIBLE_BINDER_COLUMNS: string[] = BINDER_COLUMNS.map((c) => c.id);
 
-function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: string | null }) {
+function BindersTable({ runId, runCifPath }: { runId: number; runCifPath: string | null }) {
   const [selectedBinder, setSelectedBinder] = useState<Binder | null>(null);
   const [sortKey, setSortKey] = useState<BinderSortKey>("rank");
   const [sortDir, setSortDir] = useState<BinderSortDir>("asc");
@@ -606,6 +604,37 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
   );
   const [columnsMenuOpen, setColumnsMenuOpen] = useState(false);
   const columnsMenuRef = useRef<HTMLDivElement>(null);
+
+  // Server-paged binders: sorting, filtering and paging all round-trip, so a run
+  // with thousands of designs only ever ships one page to the browser.
+  const [binders, setBinders] = useState<Binder[]>([]);
+  const [total, setTotal] = useState(0);
+  const [metricKeys, setMetricKeys] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    setLoading(true);
+    getRunBinders(
+      runId,
+      { page, pageSize, sort: sortKey, sortDir, status: statusFilter },
+      ctrl.signal
+    )
+      .then((res) => {
+        setBinders(res.items);
+        setTotal(res.total);
+        setMetricKeys(res.metric_keys);
+        setLoadError(null);
+        setLoading(false);
+      })
+      .catch((e: Error) => {
+        if (e.name === "AbortError") return; // superseded by a newer request
+        setLoadError(e.message);
+        setLoading(false);
+      });
+    return () => ctrl.abort();
+  }, [runId, page, pageSize, sortKey, sortDir, statusFilter]);
 
   useEffect(() => {
     if (!columnsMenuOpen) return;
@@ -628,24 +657,18 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
     });
   }
 
-  const metricColumns: BinderColumn[] = useMemo(() => {
-    const keys = new Set<string>();
-    for (const b of binders) {
-      if (!b.metrics) continue;
-      for (const k of Object.keys(b.metrics)) {
-        if (k === "id" || k === "file_name") continue;
-        keys.add(k);
-      }
-    }
-    return Array.from(keys).sort().map((k) => ({
-      id: `metric:${k}`,
-      label: k,
-      render: (b: Binder) => {
-        const v = b.metrics?.[k];
-        return v == null || v === "" ? "—" : String(v);
-      },
-    }));
-  }, [binders]);
+  const metricColumns: BinderColumn[] = useMemo(
+    () =>
+      metricKeys.map((k) => ({
+        id: `metric:${k}`,
+        label: k,
+        render: (b: Binder) => {
+          const v = b.metrics?.[k];
+          return v == null || v === "" ? "—" : String(v);
+        },
+      })),
+    [metricKeys]
+  );
 
   const allColumns = useMemo(
     () => [...BINDER_COLUMNS, ...metricColumns],
@@ -668,26 +691,12 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
     setPage(1);
   }
 
-  const sorted = useMemo(() => {
-    let rows = binders;
-    if (statusFilter !== "all")
-      rows = rows.filter((b) => (b.status ?? "").toLowerCase() === statusFilter);
-    return [...rows].sort((a, b) => {
-      let cmp = 0;
-      if (sortKey === "rank")    cmp = (a.final_rank ?? Infinity) - (b.final_rank ?? Infinity);
-      if (sortKey === "quality") cmp = (a.quality_score ?? 0) - (b.quality_score ?? 0);
-      if (sortKey === "iptm")    cmp = (a.design_to_target_iptm ?? 0) - (b.design_to_target_iptm ?? 0);
-      if (sortKey === "length")  cmp = (a.binder_length ?? 0) - (b.binder_length ?? 0);
-      if (sortKey === "status")  cmp = (a.status ?? "").toLowerCase().localeCompare((b.status ?? "").toLowerCase());
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-  }, [binders, statusFilter, sortKey, sortDir]);
-
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, totalPages);
-  const visible = sorted.slice((safePage - 1) * pageSize, safePage * pageSize);
 
-  if (binders.length === 0) return <p className="status">No binders.</p>;
+  if (loadError) return <p className="status error">Failed to load binders: {loadError}</p>;
+  if (loading && binders.length === 0) return <p className="status">Loading binders...</p>;
+  if (!loading && total === 0 && statusFilter === "all") return <p className="status">No binders.</p>;
 
   return (
     <>
@@ -702,7 +711,7 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
           </button>
         ))}
         <span className="binder-filter-count">
-          {sorted.length} binder{sorted.length !== 1 ? "s" : ""}
+          {total} binder{total !== 1 ? "s" : ""}
         </span>
         <div className="binder-columns-menu" ref={columnsMenuRef}>
           <button
@@ -753,7 +762,7 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
         </div>
       </div>
 
-      <div className="binder-table-wrap">
+      <div className={`binder-table-wrap${loading ? " is-loading" : ""}`}>
         <table>
         <thead>
           <tr>
@@ -774,7 +783,14 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
           </tr>
         </thead>
         <tbody>
-          {visible.map((b) => (
+          {binders.length === 0 && !loading && (
+            <tr>
+              <td colSpan={activeColumns.length} className="status">
+                No binders match this filter.
+              </td>
+            </tr>
+          )}
+          {binders.map((b) => (
             <tr
               key={b.id}
               className="binder-row"
@@ -809,7 +825,7 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
           <div className="binder-page-nav">
             <button
               className="binder-page-btn"
-              onClick={() => setPage((p) => p - 1)}
+              onClick={() => setPage(safePage - 1)}
               disabled={safePage === 1}
             >
               ← Prev
@@ -819,7 +835,7 @@ function BindersTable({ binders, runCifPath }: { binders: Binder[]; runCifPath: 
             </span>
             <button
               className="binder-page-btn"
-              onClick={() => setPage((p) => p + 1)}
+              onClick={() => setPage(safePage + 1)}
               disabled={safePage === totalPages}
             >
               Next →

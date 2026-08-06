@@ -40,7 +40,14 @@ export interface BinderRun {
   cif_path: string | null;
   target_sequence: string | null;
   steps_config: unknown;
-  binders: Binder[];
+  binder_count: number;
+}
+
+/** One page of a run's binders, plus the metric columns available for the run. */
+export interface BinderPage {
+  items: Binder[];
+  total: number;
+  metric_keys: string[];
 }
 
 export interface ProteinDetail extends Protein {
