@@ -1,5 +1,6 @@
 from datetime import datetime
 from ninja import NinjaAPI, Schema
+from django.db.models import Count, F
 from django.shortcuts import get_object_or_404
 from .models import Protein, BinderRun, Binder
 
@@ -55,7 +56,10 @@ class BinderRunSchema(Schema):
     target_sequence: str | None
     steps_config: dict | list | None
     user: str | None
-    binders: list[BinderSchema]
+    # Binders are not inlined here — a protein with several runs of a few
+    # thousand designs each made this response tens of MB. The page fetches
+    # one page of binders for the selected run from /runs/{id}/binders.
+    binder_count: int
 
     @staticmethod
     def resolve_cif_path(obj):
@@ -66,8 +70,9 @@ class BinderRunSchema(Schema):
         return obj.user.username if obj.user else None
 
     @staticmethod
-    def resolve_binders(obj):
-        return obj.binder_set.all()
+    def resolve_binder_count(obj):
+        count = getattr(obj, "binder_count", None)
+        return count if count is not None else obj.binder_set.count()
 
 
 class ProteinDetailSchema(ProteinListSchema):
@@ -78,7 +83,17 @@ class ProteinDetailSchema(ProteinListSchema):
 
     @staticmethod
     def resolve_runs(obj):
-        return obj.binderrun_set.prefetch_related("binder_set").all()
+        return (
+            obj.binderrun_set.select_related("user")
+            .annotate(binder_count=Count("binder"))
+            .all()
+        )
+
+
+class BinderPageSchema(Schema):
+    items: list[BinderSchema]
+    total: int
+    metric_keys: list[str]
 
 
 class StatsSchema(Schema):
@@ -105,6 +120,65 @@ def list_proteins(request):
 
 @api.get("/proteins/{id}", response=ProteinDetailSchema)
 def get_protein(request, id: int):
-    return get_object_or_404(
-        Protein.objects.prefetch_related("binderrun_set__binder_set"), pk=id
-    )
+    return get_object_or_404(Protein, pk=id)
+
+
+# Sort keys accepted by the binders endpoint, mapped to model fields.
+BINDER_SORT_FIELDS = {
+    "rank": "final_rank",
+    "quality": "quality_score",
+    "iptm": "design_to_target_iptm",
+    "length": "binder_length",
+    "status": "status",
+}
+
+MAX_BINDER_PAGE_SIZE = 200
+
+# The optional metric columns come from the union of keys across a run's
+# binders. Scanning every row's JSON for that is what we are trying to avoid,
+# so sample the leading rows instead — binders within a run come from the same
+# pipeline and carry the same keys. Failed designs may have empty metrics,
+# hence a sample larger than one page.
+METRIC_KEY_SAMPLE = 200
+METRIC_KEYS_HIDDEN = {"id", "file_name"}
+
+
+@api.get("/runs/{run_id}/binders", response=BinderPageSchema)
+def list_run_binders(
+    request,
+    run_id: int,
+    page: int = 1,
+    page_size: int = 20,
+    sort: str = "rank",
+    sort_dir: str = "asc",
+    status: str = "all",
+):
+    run = get_object_or_404(BinderRun, pk=run_id)
+
+    qs = run.binder_set.all()
+    if status != "all":
+        qs = qs.filter(status__iexact=status)
+
+    field = F(BINDER_SORT_FIELDS.get(sort, "final_rank"))
+    # Missing values sort last in both directions so blanks never lead the table.
+    ordering = field.desc(nulls_last=True) if sort_dir == "desc" else field.asc(nulls_last=True)
+    qs = qs.order_by(ordering, "id")
+
+    total = qs.count()
+    page = max(1, page)
+    page_size = min(max(1, page_size), MAX_BINDER_PAGE_SIZE)
+    start = (page - 1) * page_size
+    items = list(qs[start : start + page_size])
+
+    metric_keys = set()
+    # metrics=None would match JSON null rather than SQL NULL, hence __isnull.
+    sample = run.binder_set.exclude(metrics__isnull=True).values_list("metrics", flat=True)
+    for metrics in sample[:METRIC_KEY_SAMPLE]:
+        if isinstance(metrics, dict):
+            metric_keys.update(metrics)
+
+    return {
+        "items": items,
+        "total": total,
+        "metric_keys": sorted(metric_keys - METRIC_KEYS_HIDDEN),
+    }

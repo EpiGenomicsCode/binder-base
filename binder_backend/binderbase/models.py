@@ -55,4 +55,9 @@ class Binder(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["run", "final_rank", ]   
+        ordering = ["run", "final_rank", ]
+        indexes = [
+            # Backs the default ordering of the per-run binder listing, which
+            # pages through runs holding thousands of designs.
+            models.Index(fields=["run", "final_rank"], name="binder_run_rank_idx"),
+        ]
