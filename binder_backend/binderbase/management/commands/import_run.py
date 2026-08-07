@@ -14,9 +14,9 @@ from django.core.management.base import BaseCommand, CommandError
 from binderbase.models import Binder, BinderRun, Protein
 
 
-RUN_DIR_PATTERN = re.compile(
-    r"^(?P<uniprot>[A-Z0-9]+)-(?P<algorithm>.+)-(?P<date>\d{8})$"
-)
+# Run directories are named <UNIPROT_ID>-<RUN_LABEL>-<YYYYMMDD>. The name is only
+# validated as a housekeeping convention — every imported value comes from meta.json.
+RUN_DIR_PATTERN = re.compile(r"^[A-Z0-9]+-.+-\d{8}$")
 
 ALPHAFOLD_API = "https://alphafold.ebi.ac.uk/api/prediction/{}"
 UNIPROT_API = "https://rest.uniprot.org/uniprotkb/{}.json"
@@ -130,6 +130,88 @@ def _parse_steps_config(run_dir):
     return data
 
 
+# meta.json keys lifted out into BinderRun columns; everything else is kept as-is
+# in the run's `metadata`. Keys are matched case- and whitespace-insensitively so
+# hand-written files are forgiving ("UniProt ID", "uniprot_id", "UNIPROT  ID").
+META_UNIPROT_KEY = "uniprot id"
+META_RUN_DATE_KEY = "run date"
+META_ALGORITHM_KEY = "algorithm"
+
+# Unambiguous date formats only — no day-first/month-first guessing.
+RUN_DATE_FORMATS = ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d")
+
+
+def _normalize_meta_key(key):
+    return re.sub(r"[\s_-]+", " ", str(key)).strip().lower()
+
+
+def _parse_run_date(value):
+    """Parse a meta.json "Run date" value. Returns None if unrecognized."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        value = str(value)  # unquoted 20260501
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        pass
+    for fmt in RUN_DATE_FORMATS:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _clean_str(value):
+    """Coerce a scalar meta.json value to a trimmed string. None if not scalar."""
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return None
+    return str(value).strip() or None
+
+
+def _parse_metadata(run_dir):
+    """Load meta.json from the run root.
+
+    Returns ``(fields, metadata)``: `fields` holds the values lifted into BinderRun
+    columns, `metadata` is every remaining key. Returns ``(None, None)`` when
+    meta.json is missing, unparseable, or not a JSON object — the run cannot be
+    identified without it.
+    """
+    meta_path = os.path.join(run_dir, "meta.json")
+    if not os.path.isfile(meta_path):
+        return None, None
+    try:
+        with open(meta_path) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None, None
+    if not isinstance(data, dict):
+        return None, None
+
+    # A recognized key whose value cannot be used falls through to `metadata`
+    # rather than being dropped, so nothing in meta.json is ever lost.
+    consumers = {
+        META_UNIPROT_KEY: ("uniprot_id", _clean_str),
+        META_RUN_DATE_KEY: ("run_datetime", _parse_run_date),
+        META_ALGORITHM_KEY: ("algorithm_version", _clean_str),
+    }
+
+    fields = {name: None for name, _ in consumers.values()}
+    metadata = {}
+    for key, val in data.items():
+        field, parse = consumers.get(_normalize_meta_key(key), (None, None))
+        parsed = parse(val) if field else None
+        if parsed is None:
+            metadata[key] = val
+        else:
+            fields[field] = parsed
+    return fields, metadata
+
+
 def _parse_cif_sequence(cif_path):
     """Extract target sequence from a BinderRun CIF file (_entity_poly section)."""
     try:
@@ -189,8 +271,11 @@ class Command(BaseCommand):
     help = (
         "Import new binder design run directories into BinderRun database."
         "It searches under the folder MEDIA_ROOT/runs for run directories whose path is not in the database yet."
-        "The run directories must be named with the pattern: <protein_uniprot>-<algorithm_version>-<run_date>, e.g. P12345-myalgorithm_v1-20260330."
-        "Each run directory should contain a steps.yaml file, a config folder with the yaml configuration files, a CIF file for the original structure, "
+        "The run directories must be named with the pattern: <UNIPROT_ID>-<RUN_LABEL>-<YYYYMMDD>, e.g. P12345-tal1_screen-20260330. "
+        "The name is validated but nothing is read from it. "
+        "Each run directory must contain a meta.json file in its root, which supplies the run's "
+        "\"UniProt ID\" (required), \"Run date\" and \"Algorithm\"; every other key in that file is stored in the run's metadata field. "
+        "Each run directory should also contain a steps.yaml file, a config folder with the yaml configuration files, a CIF file for the original structure, "
         "and a folder final_ranked_designs that contains a csv file and a folder of CIF files. "
         "The command will create a BinderRun record and associate it with the specified Protein (by UniProt ID). "
         "If the Protein does not exist, it will query the UniProt database and populate the protein entry."
@@ -223,17 +308,12 @@ class Command(BaseCommand):
                 continue
 
             # Skip directories that do not match the expected naming pattern
-            match = RUN_DIR_PATTERN.match(entry.name)
-            if not match:
+            if not RUN_DIR_PATTERN.match(entry.name):
                 self.stdout.write(self.style.WARNING(
                     f"Skipping (name does not match pattern): {entry.name}"
                 ))
                 skipped += 1
                 continue
-
-            uniprot_id = match.group("uniprot")
-            algorithm_version = match.group("algorithm")
-            run_datetime = datetime.strptime(match.group("date"), "%Y%m%d")
 
             # Check for required final designs
             designs_dir = os.path.join(run_dir, "final_ranked_designs")
@@ -243,6 +323,31 @@ class Command(BaseCommand):
                 ))
                 skipped += 1
                 continue
+
+            # meta.json is the sole source of the run's identity — nothing is
+            # inferred from the directory name.
+            meta_fields, metadata = _parse_metadata(run_dir)
+            if meta_fields is None:
+                self.stdout.write(self.style.WARNING(
+                    f"Skipping (missing or invalid meta.json): {entry.name}"
+                ))
+                skipped += 1
+                continue
+
+            uniprot_id = meta_fields["uniprot_id"]
+            if not uniprot_id:
+                self.stdout.write(self.style.WARNING(
+                    f'Skipping (meta.json has no "UniProt ID"): {entry.name}'
+                ))
+                skipped += 1
+                continue
+
+            algorithm_version = meta_fields["algorithm_version"]
+            run_datetime = meta_fields["run_datetime"]
+            if run_datetime is None:
+                self.stdout.write(self.style.WARNING(
+                    f'No usable "Run date" in meta.json, importing without one: {entry.name}'
+                ))
 
             # Find CIF file for the original structure in the run root
             root_cif_files = glob_module.glob(os.path.join(run_dir, "*.cif"))
@@ -300,6 +405,7 @@ class Command(BaseCommand):
                 cif_path=run_cif_rel,
                 target_sequence=target_sequence,
                 steps_config=steps_config,
+                metadata=metadata or None,
             )
 
             csv_files = glob_module.glob(os.path.join(designs_dir, "*.csv"))

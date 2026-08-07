@@ -79,25 +79,27 @@ read so you can lay one out correctly.
 Each run directory lives directly under `MEDIA_ROOT/runs/` and is named:
 
 ```
-<UNIPROT_ID>-<ALGORITHM_VERSION>-<YYYYMMDD>
+<UNIPROT_ID>-<RUN_LABEL>-<YYYYMMDD>
 ```
 
-The name is parsed with the regex `^([A-Z0-9]+)-(.+)-(\d{8})$`, which determines the
-three fields as follows:
+| Part | Meaning | Example |
+|------|---------|---------|
+| `UNIPROT_ID` | Leading run of **uppercase letters/digits**. No lowercase, no hyphens. | `P12345` |
+| `RUN_LABEL` | Free-form label for the run. *May itself contain hyphens* — the date is anchored to the end of the name. | `tal1_screen`, `af3-finetune-v2` |
+| `YYYYMMDD` | Trailing **8 digits**. | `20260501` |
 
-| Part | How it's determined | Example |
-|------|---------------------|---------|
-| `UNIPROT_ID` | The leading run of **uppercase letters/digits** up to the first hyphen. No lowercase, no hyphens. | `P12345` |
-| `ALGORITHM_VERSION` | Everything **between** the UniProt ID and the trailing date. It *may itself contain hyphens* — the date is anchored to the end, so only the last 8 digits are treated as the date and the first token as the UniProt ID. | `rfdesign_v2`, `af3-finetune-v2` |
-| `YYYYMMDD` | The trailing **8 digits**, parsed as a calendar date (`%Y%m%d`). | `20260330` |
-
-Full example: `P12345-rfdesign_v2-20260330` → UniProt `P12345`, algorithm `rfdesign_v2`, date 2026-03-30.
+> **The name is validated but never read.** The importer checks it against
+> `^[A-Z0-9]+-.+-\d{8}$` and skips directories that don't match, but every imported
+> value comes from `meta.json`. Keep the name in sync with `meta.json` yourself —
+> nothing cross-checks them, so a directory named `P12345-…` whose `meta.json` says
+> `"UniProt ID": "Q9Y261"` imports as Q9Y261 without complaint.
 
 ### Required directory structure
 
 ```
 MEDIA_ROOT/runs/
-  P12345-rfdesign_v2-20260330/
+  P12345-tal1_screen-20260501/
+    meta.json                    # REQUIRED — run identity + metadata (see below)
     *.cif                        # target structure — exactly one .cif in the run root
     steps.yaml                   # optional pipeline config (see below)
     config/                      # optional configs referenced from steps.yaml
@@ -118,6 +120,64 @@ root and uses it as the run's target structure, parsing the target sequence from
 replaced inline with the parsed contents of the referenced file (YAML or JSON),
 resolved relative to the run directory — this is what the `config/` folder is for. A
 missing or unparseable `steps.yaml` is stored as null and does not stop the import.
+
+**`meta.json` (required).** A JSON **object** in the run root that supplies the run's
+identity. Three keys are lifted into database columns; **every other key** is stored in
+the run's `metadata` field.
+
+| Key | DB field | Required | Accepted values |
+|---|---|---|---|
+| `UniProt ID` | resolves/creates the `Protein` | **Yes** | Any non-empty string |
+| `Run date` | `run_datetime` | No | `YYYY-MM-DD`, `YYYY/MM/DD`, `YYYYMMDD`, or a full ISO 8601 timestamp |
+| `Algorithm` | `algorithm_version` | No | Any scalar (strings, numbers) |
+
+```json
+{
+  "UniProt ID": "P12345",
+  "Run date": "2026-05-01",
+  "Algorithm": "XXX v1.0",
+  "domain": "TAL1-E2",
+  "hotspot residues": "31, 33, 38, 54, 58, 61, 63, 67, 68"
+}
+```
+
+Here `domain` and `hotspot residues` become the run's `metadata`.
+
+Key matching is **case-, space-, underscore- and hyphen-insensitive**, so `UniProt ID`,
+`uniprot_id` and `UNIPROT-ID` are equivalent.
+
+If a recognized key's value can't be used — an unparseable `Run date`, an object where a
+scalar `Algorithm` was expected — the column is left null and the **raw entry falls
+through to `metadata`**, so nothing in the file is ever silently lost.
+
+**How it renders.** In the **Steps & Configuration** panel of the protein detail page,
+the leftover `metadata` keys appear as extra rows of the *same* key/value list as
+Algorithm, Run date, Hardware and Description — reassembling the run's `meta.json` in
+one place. So the example above reads:
+
+```
+Algorithm           XXX v1.0
+Run date            May 1, 2026, 12:00:00 AM
+domain              TAL1-E2
+hotspot residues    31, 33, 38, 54, 58, 61, 63, 67, 68
+```
+
+A **flat object of scalar values** therefore displays best. Nested objects and arrays are
+still stored and shown, but render as formatted JSON in the value column, and a
+`metadata` that isn't an object at all (an array, say) gets a single row labelled
+`Metadata`.
+
+Two caveats:
+
+- A `meta.json` key that collides with a built-in label — `notes`, `hardware`,
+  `description` — produces **two rows with the same name**. Nothing is hidden, but pick
+  different key names to avoid the ambiguity.
+- `Algorithm` and `Run date` can't collide this way: they only remain in `metadata` when
+  the importer couldn't parse them, and in that case the built-in row is empty and
+  hidden, so the raw value is what you see.
+
+> Note: `import_run` skips run directories it has already imported, so editing a
+> `meta.json` afterwards will **not** update the corresponding run.
 
 **`final_ranked_designs/` (required).** Must exist, or the directory is skipped (see
 below). The **first** `*.csv` in this folder is read as the binder table; per-design CIF
@@ -148,11 +208,18 @@ Any additional columns are stored in the `metrics` JSON field.
 A directory is skipped (logged, and the command continues to the next one) when:
 
 - It is **already imported** — its path matches an existing `BinderRun.run_dir`.
-- Its name **does not match** the `<UNIPROT_ID>-<ALGORITHM_VERSION>-<YYYYMMDD>` pattern.
+- Its name **does not match** the `<UNIPROT_ID>-<RUN_LABEL>-<YYYYMMDD>` pattern.
 - It has **no `final_ranked_designs/` folder**.
+- Its `meta.json` is **missing, unparseable, or not a JSON object**.
+- Its `meta.json` has **no usable `UniProt ID`** — without it the `Protein` can't be resolved.
 
-Non-directory entries under `runs/` are ignored. A run with no root `.cif` or no CSV is
-*not* skipped — it imports with the corresponding fields left empty.
+Non-directory entries under `runs/` are ignored. These do *not* cause a skip — the run
+imports with the corresponding fields left empty:
+
+- no root `.cif` (no target structure or sequence), or no CSV (no binders);
+- no usable `Run date` → `run_datetime` is null, logged as a warning. Such runs sort last
+  and show no date in the UI;
+- no usable `Algorithm` → `algorithm_version` is null.
 
 ### Running the import command
 
@@ -164,13 +231,15 @@ python manage.py import_run
 
 For each new run directory the command:
 
-1. **Resolves the `Protein`** by UniProt ID. If it already exists it is reused; otherwise
+1. **Reads `meta.json`**, taking `UniProt ID`, `Run date` and `Algorithm` from it and
+   keeping the remaining keys as the run's `metadata`.
+2. **Resolves the `Protein`** by that UniProt ID. If it already exists it is reused; otherwise
    the AlphaFold API (sequence, gene name, organism, structure CIF, PAE JSON) and UniProt
    API (biological function) are queried, the CIF and PAE JSON are downloaded to
    `MEDIA_ROOT/proteins/{uniprot_id}/`, and the `Protein` is created.
-2. **Creates a `BinderRun`** (algorithm/version, date, target CIF path, target sequence,
-   `steps_config`).
-3. **Bulk-creates `Binder` records** from the CSV, linking each to its per-design CIF.
+3. **Creates a `BinderRun`** (algorithm/version, date, target CIF path, target sequence,
+   `steps_config`, `metadata`).
+4. **Bulk-creates `Binder` records** from the CSV, linking each to its per-design CIF.
 
 A summary line reports the number of runs imported and skipped.
 
@@ -179,6 +248,21 @@ A summary line reports the number of runs imported and skipped.
 ## API Endpoints
 
 All endpoints are mounted at `/api/`. Interactive docs (OpenAPI/Swagger UI) are available at `/api/docs`.
+
+### `GET /api/stats`
+
+Returns database-wide totals, for dashboard summary tiles.
+
+**Response:**
+
+| Field | Type | Description |
+|---|---|---|
+| `protein_count` | int | Total proteins |
+| `run_count` | int | Total binder runs |
+| `binder_count` | int | Total binders across all runs |
+| `success_count` | int | Binders with `status` exactly `success` |
+
+---
 
 ### `GET /api/proteins`
 
@@ -227,15 +311,50 @@ Returns full detail for a single protein, including all binder runs and their ra
 | Field | Type | Description |
 |---|---|---|
 | `id` | int | Database ID |
-| `algorithm_version` | string | Algorithm name and version |
+| `algorithm_version` | string | Algorithm name and version, from the `Algorithm` key of `meta.json` |
 | `description` | string | Optional description |
-| `run_datetime` | datetime | Date/time of the run |
+| `run_datetime` | datetime \| null | Date/time of the run, from the `Run date` key of `meta.json`. Null when that key is absent or unparseable |
 | `hardware` | string | Hardware used |
 | `notes` | string | Free-text notes |
 | `run_dir` | string | Relative path to run directory under `MEDIA_ROOT` |
 | `cif_path` | string | Relative path to the target structure CIF file |
+| `target_sequence` | string | Target sequence parsed from the run's CIF file |
+| `steps_config` | object \| array | Parsed `steps.yaml`, with referenced config files inlined |
+| `metadata` | object | Remaining keys of `meta.json`, after `UniProt ID` / `Run date` / `Algorithm` are lifted out (null if none) |
 | `user` | string | Username who imported the run |
-| `binders` | array | List of `Binder` objects (see below) |
+| `binder_count` | int | Number of binders in the run |
+
+Binders are **not** inlined in this response — a protein with several runs of a few
+thousand designs each made it tens of MB. Fetch them a page at a time from
+`GET /api/runs/{run_id}/binders` instead.
+
+---
+
+### `GET /api/runs/{run_id}/binders`
+
+Returns one page of a run's binders.
+
+**Query parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `page` | int | `1` | 1-based page number |
+| `page_size` | int | `20` | Results per page (capped at 200) |
+| `sort` | string | `rank` | One of `rank`, `quality`, `iptm`, `length`, `status` |
+| `sort_dir` | string | `asc` | `asc` or `desc`; missing values always sort last |
+| `status` | string | `all` | `all`, or a status to filter by (case-insensitive) |
+
+**Response:**
+
+| Field | Type | Description |
+|---|---|---|
+| `items` | array | List of `Binder` objects (see below) |
+| `total` | int | Total binders matching the filter, across all pages |
+| `metric_keys` | array | Metric column names available for this run |
+
+`metric_keys` is sampled from the leading rows of the run rather than scanned across
+every row, since binders within a run come from the same pipeline and carry the same
+keys.
 
 **`Binder` object:**
 
@@ -249,6 +368,7 @@ Returns full detail for a single protein, including all binder runs and their ra
 | `final_rank` | int | Rank among designs in the run |
 | `quality_score` | float | Overall quality score |
 | `design_to_target_iptm` | float | ipTM score for binder–target interface |
+| `metrics` | object | Unmapped CSV columns, kept as-is |
 | `cif_path` | string | Relative path to the binder's CIF structure file |
 
 ---

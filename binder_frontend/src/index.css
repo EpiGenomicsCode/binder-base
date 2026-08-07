@@ -2821,3 +2821,9 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
   white-space: pre-wrap;
   overflow-x: auto;
 }
+
+/* JSON-valued metadata rows sit in the run's key/value grid, where a top margin
+   would push the value out of line with its label. */
+.run-config-dl .run-step-config {
+  margin-top: 0;
+}

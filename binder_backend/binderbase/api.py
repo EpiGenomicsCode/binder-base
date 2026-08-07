@@ -48,13 +48,14 @@ class BinderRunSchema(Schema):
     id: int
     algorithm_version: str | None
     description: str | None
-    run_datetime: datetime
+    run_datetime: datetime | None
     hardware: str | None
     notes: str | None
     run_dir: str | None
     cif_path: str | None
     target_sequence: str | None
     steps_config: dict | list | None
+    metadata: dict | list | None
     user: str | None
     # Binders are not inlined here — a protein with several runs of a few
     # thousand designs each made this response tens of MB. The page fetches

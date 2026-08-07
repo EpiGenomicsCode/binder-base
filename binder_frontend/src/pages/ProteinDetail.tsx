@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { getProtein, getRunBinders } from "../api/client";
 import type { Binder, BinderRun, ProteinDetail } from "../types";
@@ -309,6 +309,50 @@ function RunStepsList({ stepsConfig }: { stepsConfig: unknown }) {
 }
 
 
+// The leftover meta.json keys, rendered as extra rows of the run's key/value
+// list alongside Algorithm, Run date and the rest — those three were lifted out
+// of the same file at import time, so they belong in one list.
+//
+// Returns a Fragment rather than a wrapper element: `run-config-dl` is a grid,
+// so the <dt>/<dd> pairs have to stay direct children of the <dl> to line up.
+function RunMetadata({ metadata }: { metadata: unknown }) {
+  if (metadata === null || metadata === undefined) return null;
+
+  // A non-object value (array, string, number) has no keys to merge into the
+  // list, so it gets a single row under a generic label.
+  if (typeof metadata !== "object" || Array.isArray(metadata)) {
+    return (
+      <>
+        <dt>Metadata</dt>
+        <dd>
+          <pre className="run-step-config">{JSON.stringify(metadata, null, 2)}</pre>
+        </dd>
+      </>
+    );
+  }
+
+  const entries = Object.entries(metadata as Record<string, unknown>);
+  if (entries.length === 0) return null;
+
+  return (
+    <>
+      {entries.map(([key, val]) => (
+        <Fragment key={key}>
+          <dt>{key}</dt>
+          <dd>
+            {val !== null && typeof val === "object" ? (
+              <pre className="run-step-config">{JSON.stringify(val, null, 2)}</pre>
+            ) : (
+              String(val)
+            )}
+          </dd>
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+
 export default function ProteinDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -426,6 +470,7 @@ export default function ProteinDetailPage() {
                       {run.run_datetime && <><dt>Run date</dt><dd>{new Date(run.run_datetime).toLocaleString()}</dd></>}
                       {run.hardware && <><dt>Hardware</dt><dd>{run.hardware}</dd></>}
                       {run.description && <><dt>Description</dt><dd>{run.description}</dd></>}
+                      <RunMetadata metadata={run.metadata} />
                       {run.notes && <><dt>Notes</dt><dd>{run.notes}</dd></>}
                     </dl>
                     <RunStepsList key={run.id} stepsConfig={run.steps_config} />

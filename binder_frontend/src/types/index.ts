@@ -34,12 +34,13 @@ export interface BinderRun {
   id: number;
   algorithm_version: string | null;
   description: string | null;
-  run_datetime: string;
+  run_datetime: string | null;
   hardware: string | null;
   notes: string | null;
   cif_path: string | null;
   target_sequence: string | null;
   steps_config: unknown;
+  metadata: unknown;
   binder_count: number;
 }
 

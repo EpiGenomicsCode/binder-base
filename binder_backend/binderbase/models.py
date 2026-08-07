@@ -25,16 +25,23 @@ class BinderRun(models.Model):
     run_datetime = models.DateTimeField(null=True, blank=True)
     hardware = models.CharField(max_length=255, null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
-    run_dir = models.CharField(max_length=1024, null=True, blank=True)
+    run_dir = models.CharField(max_length=1024, unique=True, null=True, blank=True)
     cif_path = models.FileField(null=True, blank=True, max_length=1024, verbose_name="CIF path")
     target_sequence = models.TextField(null=True, blank=True)
     steps_config = models.JSONField(null=True, blank=True, default=dict)
+    metadata = models.JSONField(null=True, blank=True)
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return self.protein.uniprot_id + " - " + self.algorithm_version + " - " + self.run_datetime.strftime("%Y-%m-%d %H:%M:%S")
+        # algorithm_version and run_datetime are optional — meta.json may omit them.
+        parts = [
+            self.protein.uniprot_id,
+            self.algorithm_version,
+            self.run_datetime.strftime("%Y-%m-%d %H:%M:%S") if self.run_datetime else None,
+        ]
+        return " - ".join(p for p in parts if p) or f"Run #{self.pk}"
     
     class Meta:
         ordering = ["-run_datetime", ]
