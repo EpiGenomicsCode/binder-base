@@ -263,6 +263,48 @@ def _dir_name_mismatches(match, uniprot_id, run_datetime):
     return problems
 
 
+def get_or_create_protein(uniprot_id):
+    """Look up a Protein by UniProt ID, creating it from AlphaFold/UniProt if new.
+
+    Returns ``(protein, created)``. Creating one downloads the predicted structure
+    and PAE files, so this hits the network only on a miss. Shared with the
+    import_meta_json command.
+    """
+    try:
+        return Protein.objects.get(uniprot_id=uniprot_id), False
+    except Protein.DoesNotExist:
+        pass
+
+    alphafold_data = _fetch_alphafold(uniprot_id)
+    biological_function = _fetch_biological_function(uniprot_id)
+
+    proteins_dir = os.path.join(settings.MEDIA_ROOT, "proteins", uniprot_id)
+    cif_rel = pae_rel = None
+
+    if alphafold_data.get("cif_url"):
+        cif_dest = os.path.join(proteins_dir, "model.cif")
+        _download_file(alphafold_data["cif_url"], cif_dest)
+        cif_rel = os.path.relpath(cif_dest, settings.MEDIA_ROOT)
+
+    if alphafold_data.get("pae_doc_url"):
+        pae_dest = os.path.join(proteins_dir, "pae.json")
+        _download_file(alphafold_data["pae_doc_url"], pae_dest)
+        pae_rel = os.path.relpath(pae_dest, settings.MEDIA_ROOT)
+
+    protein = Protein.objects.create(
+        uniprot_id=uniprot_id,
+        sequence=alphafold_data["sequence"],
+        length=alphafold_data["length"],
+        gene_name=alphafold_data["gene_name"],
+        protein_name=alphafold_data["protein_name"],
+        organism=alphafold_data["organism"],
+        biological_function=biological_function,
+        cif_path=cif_rel,
+        pae_json_path=pae_rel,
+    )
+    return protein, True
+
+
 def _parse_cif_sequence(cif_path):
     """Extract target sequence from a BinderRun CIF file (_entity_poly section)."""
     try:
@@ -420,42 +462,15 @@ class Command(BaseCommand):
             )
             target_sequence = _parse_cif_sequence(root_cif_files[0]) if root_cif_files else None
 
-            # Get or create Protein
-            try:
-                protein = Protein.objects.get(uniprot_id=uniprot_id)
-                self.stdout.write(f"Found Protein: {uniprot_id}")
-            except Protein.DoesNotExist:
+            if not Protein.objects.filter(uniprot_id=uniprot_id).exists():
                 self.stdout.write(f"Fetching AlphaFold data for: {uniprot_id} ...")
-                alphafold_data = _fetch_alphafold(uniprot_id)
-                biological_function = _fetch_biological_function(uniprot_id)
-
-                proteins_dir = os.path.join(settings.MEDIA_ROOT, "proteins", uniprot_id)
-                cif_rel = pae_rel = None
-
-                if alphafold_data.get("cif_url"):
-                    cif_dest = os.path.join(proteins_dir, "model.cif")
-                    _download_file(alphafold_data["cif_url"], cif_dest)
-                    cif_rel = os.path.relpath(cif_dest, settings.MEDIA_ROOT)
-
-                if alphafold_data.get("pae_doc_url"):
-                    pae_dest = os.path.join(proteins_dir, "pae.json")
-                    _download_file(alphafold_data["pae_doc_url"], pae_dest)
-                    pae_rel = os.path.relpath(pae_dest, settings.MEDIA_ROOT)
-
-                protein = Protein.objects.create(
-                    uniprot_id=uniprot_id,
-                    sequence=alphafold_data["sequence"],
-                    length=alphafold_data["length"],
-                    gene_name=alphafold_data["gene_name"],
-                    protein_name=alphafold_data["protein_name"],
-                    organism=alphafold_data["organism"],
-                    biological_function=biological_function,
-                    cif_path=cif_rel,
-                    pae_json_path=pae_rel,
-                )
+            protein, created = get_or_create_protein(uniprot_id)
+            if created:
                 self.stdout.write(
                     f"Created Protein: {uniprot_id} ({protein.protein_name})"
                 )
+            else:
+                self.stdout.write(f"Found Protein: {uniprot_id}")
 
             steps_config = _parse_steps_config(run_dir)
 

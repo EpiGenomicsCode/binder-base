@@ -159,7 +159,9 @@ scalar `Algorithm` was expected — the column is left null and the **raw entry 
 through to `metadata`**, so nothing in the file is ever silently lost.
 
 > Note: `import_run` skips run directories it has already imported, so editing a
-> `meta.json` afterwards will **not** update the corresponding run.
+> `meta.json` afterwards will **not** update the corresponding run. Use
+> [`import_meta_json`](#re-reading-metajson-for-existing-runs) to push those edits into
+> runs that are already in the database.
 
 **`final_ranked_designs/` (required).** Must exist, or the directory is skipped (see
 below). The **first** `*.csv` in this folder is read as the binder table; per-design CIF
@@ -224,6 +226,58 @@ For each new run directory the command:
 4. **Bulk-creates `Binder` records** from the CSV, linking each to its per-design CIF.
 
 A summary line reports the number of runs imported and skipped.
+
+### Re-reading `meta.json` for existing runs
+
+`import_run` only ever looks at directories it hasn't imported, so editing a `meta.json`
+afterwards has no effect. To push those edits into runs that are already in the database,
+use `import_meta_json`:
+
+```bash
+python manage.py import_meta_json                              # every run in the database
+python manage.py import_meta_json P12345-tal1_screen-20260501  # just this one
+python manage.py import_meta_json --dry-run                    # preview, write nothing
+```
+
+This is a **full resync, not a merge**. The six `meta.json`-owned fields are overwritten
+from the file, and **a key that is absent from the file sets its column back to null** —
+so the database always mirrors the current contents of `meta.json`:
+
+| Field | Source key |
+|---|---|
+| `protein` | `UniProt ID` |
+| `run_datetime` | `Run date` |
+| `algorithm` | `Algorithm` |
+| `hardware` | `Hardware` |
+| `description` | `Description` |
+| `notes` | `Notes` |
+| `metadata` | every remaining key (replaced wholesale, not merged) |
+
+Because it can clear fields in bulk, run it with `--dry-run` first. Output is a per-field
+`old -> new` diff:
+
+```
+P12345-tal1_screen-20260501
+  algorithm  OLD v0.1 -> XXX v1.0
+  hardware  old hardware -> None
+  metadata  {'stale': 'yes'} -> {'Domain': 'TAL1-E2'}
+
+Done. updated: 1  unchanged: 0  failed: 0
+```
+
+**Scope.** The command never creates or deletes runs and never touches binders — it only
+updates the fields above on runs that already exist. Directories on disk that have never
+been imported are ignored; use `import_run` for those. Files other than `meta.json`
+(`steps.yaml`, the CIFs, the designs CSV) are not re-read either.
+
+**If `UniProt ID` changed**, the run is **reassigned to that protein** and a warning is
+logged.
+
+**Failures leave data untouched.** A run is reported and skipped without any change when
+its `meta.json` is missing, unparseable or not a JSON object, when it has no usable
+`UniProt ID`, or when the run directory itself is gone. A broken file is treated as a
+problem to fix, never as an instruction to clear every column.
+
 
 ---
 
