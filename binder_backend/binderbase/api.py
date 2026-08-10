@@ -46,7 +46,7 @@ class BinderSchema(Schema):
 
 class BinderRunSchema(Schema):
     id: int
-    algorithm_version: str | None
+    algorithm: str | None
     description: str | None
     run_datetime: datetime | None
     hardware: str | None

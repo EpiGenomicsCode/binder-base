@@ -10,13 +10,17 @@ import yaml
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from django.utils import timezone
 
 from binderbase.models import Binder, BinderRun, Protein
 
 
-# Run directories are named <UNIPROT_ID>-<RUN_LABEL>-<YYYYMMDD>. The name is only
-# validated as a housekeeping convention — every imported value comes from meta.json.
-RUN_DIR_PATTERN = re.compile(r"^[A-Z0-9]+-.+-\d{8}$")
+# Run directories are named <UNIPROT_ID>-<RUN_LABEL>-<YYYYMMDD>. Every imported value
+# comes from meta.json; the captured parts are only cross-checked against it so a
+# stale or copy-pasted directory name gets noticed.
+RUN_DIR_PATTERN = re.compile(
+    r"^(?P<uniprot>[A-Z0-9]+)-(?P<label>.+)-(?P<date>\d{8})$"
+)
 
 ALPHAFOLD_API = "https://alphafold.ebi.ac.uk/api/prediction/{}"
 UNIPROT_API = "https://rest.uniprot.org/uniprotkb/{}.json"
@@ -131,18 +135,33 @@ def _parse_steps_config(run_dir):
 
 
 # meta.json keys lifted out into BinderRun columns; everything else is kept as-is
-# in the run's `metadata`. Keys are matched case- and whitespace-insensitively so
-# hand-written files are forgiving ("UniProt ID", "uniprot_id", "UNIPROT  ID").
-META_UNIPROT_KEY = "uniprot id"
-META_RUN_DATE_KEY = "run date"
+# in the run's `metadata`. Keys are compared with separators and case stripped, so
+# hand-written files are forgiving ("UniProt ID", "uniprot_id", "UNIPROT-ID").
+META_UNIPROT_KEY = "uniprotid"
+META_RUN_DATE_KEY = "rundate"
 META_ALGORITHM_KEY = "algorithm"
+META_HARDWARE_KEY = "hardware"
+META_DESCRIPTION_KEY = "description"
+META_NOTES_KEY = "notes"
 
 # Unambiguous date formats only — no day-first/month-first guessing.
 RUN_DATE_FORMATS = ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d")
 
 
 def _normalize_meta_key(key):
-    return re.sub(r"[\s_-]+", " ", str(key)).strip().lower()
+    return re.sub(r"[\s_-]+", "", str(key)).lower()
+
+
+def _make_aware(parsed):
+    """Attach the current time zone to a naive datetime when USE_TZ is on.
+
+    Most accepted formats carry no offset, and storing those naive triggers a
+    RuntimeWarning from DateTimeField and an ambiguous value in the database.
+    A string that already specified an offset is left as it is.
+    """
+    if settings.USE_TZ and timezone.is_naive(parsed):
+        return timezone.make_aware(parsed)
+    return parsed
 
 
 def _parse_run_date(value):
@@ -155,12 +174,12 @@ def _parse_run_date(value):
     if not text:
         return None
     try:
-        return datetime.fromisoformat(text)
+        return _make_aware(datetime.fromisoformat(text))
     except ValueError:
         pass
     for fmt in RUN_DATE_FORMATS:
         try:
-            return datetime.strptime(text, fmt)
+            return _make_aware(datetime.strptime(text, fmt))
         except ValueError:
             continue
     return None
@@ -197,7 +216,10 @@ def _parse_metadata(run_dir):
     consumers = {
         META_UNIPROT_KEY: ("uniprot_id", _clean_str),
         META_RUN_DATE_KEY: ("run_datetime", _parse_run_date),
-        META_ALGORITHM_KEY: ("algorithm_version", _clean_str),
+        META_ALGORITHM_KEY: ("algorithm", _clean_str),
+        META_HARDWARE_KEY: ("hardware", _clean_str),
+        META_DESCRIPTION_KEY: ("description", _clean_str),
+        META_NOTES_KEY: ("notes", _clean_str),
     }
 
     fields = {name: None for name, _ in consumers.values()}
@@ -210,6 +232,35 @@ def _parse_metadata(run_dir):
         else:
             fields[field] = parsed
     return fields, metadata
+
+
+def _dir_name_mismatches(match, uniprot_id, run_datetime):
+    """Cross-check the directory name against what meta.json supplied.
+
+    Nothing here changes what is imported — meta.json always wins. Returns a list
+    of human-readable descriptions, empty when the two agree or when meta.json had
+    no value to compare against.
+    """
+    problems = []
+
+    dir_uniprot = match.group("uniprot")
+    # UniProt accessions are canonically uppercase, so case alone is not a mismatch.
+    if uniprot_id and dir_uniprot.upper() != uniprot_id.upper():
+        problems.append(f'UniProt ID "{dir_uniprot}" vs meta.json "{uniprot_id}"')
+
+    dir_date_text = match.group("date")
+    try:
+        dir_date = datetime.strptime(dir_date_text, "%Y%m%d").date()
+    except ValueError:
+        # 8 digits that aren't a real calendar date, e.g. 20261345.
+        problems.append(f'date "{dir_date_text}" is not a valid date')
+    else:
+        if run_datetime is not None and dir_date != run_datetime.date():
+            problems.append(
+                f'date "{dir_date_text}" vs meta.json "{run_datetime:%Y%m%d}"'
+            )
+
+    return problems
 
 
 def _parse_cif_sequence(cif_path):
@@ -272,9 +323,11 @@ class Command(BaseCommand):
         "Import new binder design run directories into BinderRun database."
         "It searches under the folder MEDIA_ROOT/runs for run directories whose path is not in the database yet."
         "The run directories must be named with the pattern: <UNIPROT_ID>-<RUN_LABEL>-<YYYYMMDD>, e.g. P12345-tal1_screen-20260330. "
-        "The name is validated but nothing is read from it. "
+        "Nothing is imported from the name, but its UniProt ID and date are cross-checked "
+        "against meta.json and a warning is logged if they disagree. "
         "Each run directory must contain a meta.json file in its root, which supplies the run's "
-        "\"UniProt ID\" (required), \"Run date\" and \"Algorithm\"; every other key in that file is stored in the run's metadata field. "
+        "\"UniProt ID\" (required), \"Run date\", \"Algorithm\", \"Hardware\", \"Description\" and \"Notes\"; "
+        "every other key in that file is stored in the run's metadata field. "
         "Each run directory should also contain a steps.yaml file, a config folder with the yaml configuration files, a CIF file for the original structure, "
         "and a folder final_ranked_designs that contains a csv file and a folder of CIF files. "
         "The command will create a BinderRun record and associate it with the specified Protein (by UniProt ID). "
@@ -308,7 +361,8 @@ class Command(BaseCommand):
                 continue
 
             # Skip directories that do not match the expected naming pattern
-            if not RUN_DIR_PATTERN.match(entry.name):
+            name_match = RUN_DIR_PATTERN.match(entry.name)
+            if not name_match:
                 self.stdout.write(self.style.WARNING(
                     f"Skipping (name does not match pattern): {entry.name}"
                 ))
@@ -334,7 +388,9 @@ class Command(BaseCommand):
                 skipped += 1
                 continue
 
-            uniprot_id = meta_fields["uniprot_id"]
+            # Popped off: it resolves the Protein rather than being a run column,
+            # which leaves meta_fields keyed exactly by BinderRun field name.
+            uniprot_id = meta_fields.pop("uniprot_id")
             if not uniprot_id:
                 self.stdout.write(self.style.WARNING(
                     f'Skipping (meta.json has no "UniProt ID"): {entry.name}'
@@ -342,11 +398,17 @@ class Command(BaseCommand):
                 skipped += 1
                 continue
 
-            algorithm_version = meta_fields["algorithm_version"]
-            run_datetime = meta_fields["run_datetime"]
-            if run_datetime is None:
+            if meta_fields["run_datetime"] is None:
                 self.stdout.write(self.style.WARNING(
                     f'No usable "Run date" in meta.json, importing without one: {entry.name}'
+                ))
+
+            # Advisory only — meta.json is authoritative, the run still imports.
+            for problem in _dir_name_mismatches(
+                name_match, uniprot_id, meta_fields["run_datetime"]
+            ):
+                self.stdout.write(self.style.WARNING(
+                    f"Directory name disagrees with meta.json ({problem}): {entry.name}"
                 ))
 
             # Find CIF file for the original structure in the run root
@@ -399,13 +461,13 @@ class Command(BaseCommand):
 
             run = BinderRun.objects.create(
                 protein=protein,
-                algorithm_version=algorithm_version,
-                run_datetime=run_datetime,
                 run_dir=run_dir_rel,
                 cif_path=run_cif_rel,
                 target_sequence=target_sequence,
                 steps_config=steps_config,
                 metadata=metadata or None,
+                # algorithm, run_datetime, hardware, description, notes
+                **meta_fields,
             )
 
             csv_files = glob_module.glob(os.path.join(designs_dir, "*.csv"))

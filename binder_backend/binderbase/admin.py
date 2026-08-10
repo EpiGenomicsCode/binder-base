@@ -10,8 +10,8 @@ class ProteinAdmin(admin.ModelAdmin):
 
 @admin.register(BinderRun)
 class BinderRunAdmin(admin.ModelAdmin):
-    list_display = ('protein', 'algorithm_version', 'run_datetime', 'hardware', 'description', 'run_dir', 'user')
-    list_filter = ('protein', 'algorithm_version', 'hardware', 'user')
+    list_display = ('protein', 'algorithm', 'run_datetime', 'hardware', 'description', 'run_dir', 'user')
+    list_filter = ('protein', 'algorithm', 'hardware', 'user')
 
 
 @admin.register(Binder)

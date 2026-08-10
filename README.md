@@ -62,7 +62,7 @@ The following models are registered:
 | Model | List columns | Filters |
 |---|---|---|
 | **Protein** | UniProt ID, gene name, protein name, organism, length | Organism |
-| **BinderRun** | Protein, algorithm version, run date, hardware, description, run dir, user | Protein, algorithm version, hardware, user |
+| **BinderRun** | Protein, algorithm, run date, hardware, description, run dir, user | Protein, algorithm, hardware, user |
 | **Binder** | Run, length, rank, quality score, ipTM, status | Run |
 
 ---
@@ -85,14 +85,14 @@ Each run directory lives directly under `MEDIA_ROOT/runs/` and is named:
 | Part | Meaning | Example |
 |------|---------|---------|
 | `UNIPROT_ID` | Leading run of **uppercase letters/digits**. No lowercase, no hyphens. | `P12345` |
-| `RUN_LABEL` | Free-form label for the run. *May itself contain hyphens* — the date is anchored to the end of the name. | `tal1_screen`, `af3-finetune-v2` |
+| `RUN_LABEL` | Free-form label for the run. *May itself contain hyphens* — the date is anchored to the end of the name. | `tal1_screen` |
 | `YYYYMMDD` | Trailing **8 digits**. | `20260501` |
 
-> **The name is validated but never read.** The importer checks it against
-> `^[A-Z0-9]+-.+-\d{8}$` and skips directories that don't match, but every imported
-> value comes from `meta.json`. Keep the name in sync with `meta.json` yourself —
-> nothing cross-checks them, so a directory named `P12345-…` whose `meta.json` says
-> `"UniProt ID": "Q9Y261"` imports as Q9Y261 without complaint.
+The directory name is validated against `^([A-Z0-9]+)-(.+)-(\d{8})$` and skips 
+directories that don't match. If the UniProt ID or run date is different between 
+the run directory name and the meta.json file (see below), a warning will be 
+logged during importation. However, the importation will proceed with every
+imported value coming from `meta.json`. 
 
 ### Required directory structure
 
@@ -121,60 +121,42 @@ replaced inline with the parsed contents of the referenced file (YAML or JSON),
 resolved relative to the run directory — this is what the `config/` folder is for. A
 missing or unparseable `steps.yaml` is stored as null and does not stop the import.
 
-**`meta.json` (required).** A JSON **object** in the run root that supplies the run's
-identity. Three keys are lifted into database columns; **every other key** is stored in
+**`meta.json` (required).** A JSON file in the run root that supplies the run's
+identity. Six keys are lifted into database columns; **every other key** is stored in
 the run's `metadata` field.
 
 | Key | DB field | Required | Accepted values |
 |---|---|---|---|
 | `UniProt ID` | resolves/creates the `Protein` | **Yes** | Any non-empty string |
 | `Run date` | `run_datetime` | No | `YYYY-MM-DD`, `YYYY/MM/DD`, `YYYYMMDD`, or a full ISO 8601 timestamp |
-| `Algorithm` | `algorithm_version` | No | Any scalar (strings, numbers) |
+| `Algorithm` | `algorithm` | No | Any scalar (strings, numbers) |
+| `Hardware` | `hardware` | No | Any scalar (strings, numbers) |
+| `Description` | `description` | No | Any scalar (strings, numbers) |
+| `Notes` | `notes` | No | Any scalar (strings, numbers) |
 
 ```json
 {
   "UniProt ID": "P12345",
   "Run date": "2026-05-01",
   "Algorithm": "XXX v1.0",
-  "domain": "TAL1-E2",
-  "hotspot residues": "31, 33, 38, 54, 58, 61, 63, 67, 68"
+  "Hardware": "1x A100 80GB",
+  "Description": "TAL1-E2 binder screen",
+  "Notes": "rerun of the April batch with relaxed filters",
+  "Domain": "TAL1-E2",
+  "Hotspot residues": "31, 33, 38, 54, 58, 61, 63, 67, 68"
 }
 ```
 
-Here `domain` and `hotspot residues` become the run's `metadata`.
+Here `Domain` and `Hotspot residues` become the run's `metadata`.
 
-Key matching is **case-, space-, underscore- and hyphen-insensitive**, so `UniProt ID`,
-`uniprot_id` and `UNIPROT-ID` are equivalent.
+Key matching **ignores case and any spaces, underscores or hyphens**, so `UniProt ID`,
+`uniprot_id` and `UNIPROT-ID` are equivalent. Matching is on the whole key, so
+near-misses like `Hardware config` or `Run dates` are *not* absorbed — they stay in
+`metadata`.
 
 If a recognized key's value can't be used — an unparseable `Run date`, an object where a
 scalar `Algorithm` was expected — the column is left null and the **raw entry falls
 through to `metadata`**, so nothing in the file is ever silently lost.
-
-**How it renders.** In the **Steps & Configuration** panel of the protein detail page,
-the leftover `metadata` keys appear as extra rows of the *same* key/value list as
-Algorithm, Run date, Hardware and Description — reassembling the run's `meta.json` in
-one place. So the example above reads:
-
-```
-Algorithm           XXX v1.0
-Run date            May 1, 2026, 12:00:00 AM
-domain              TAL1-E2
-hotspot residues    31, 33, 38, 54, 58, 61, 63, 67, 68
-```
-
-A **flat object of scalar values** therefore displays best. Nested objects and arrays are
-still stored and shown, but render as formatted JSON in the value column, and a
-`metadata` that isn't an object at all (an array, say) gets a single row labelled
-`Metadata`.
-
-Two caveats:
-
-- A `meta.json` key that collides with a built-in label — `notes`, `hardware`,
-  `description` — produces **two rows with the same name**. Nothing is hidden, but pick
-  different key names to avoid the ambiguity.
-- `Algorithm` and `Run date` can't collide this way: they only remain in `metadata` when
-  the importer couldn't parse them, and in that case the built-in row is empty and
-  hidden, so the raw value is what you see.
 
 > Note: `import_run` skips run directories it has already imported, so editing a
 > `meta.json` afterwards will **not** update the corresponding run.
@@ -213,13 +195,12 @@ A directory is skipped (logged, and the command continues to the next one) when:
 - Its `meta.json` is **missing, unparseable, or not a JSON object**.
 - Its `meta.json` has **no usable `UniProt ID`** — without it the `Protein` can't be resolved.
 
-Non-directory entries under `runs/` are ignored. These do *not* cause a skip — the run
-imports with the corresponding fields left empty:
+`BinderRun.run_dir` also carries a **database-level unique constraint**, so a duplicate
+run cannot be created even if the in-memory check is bypassed. Two consequences:
 
-- no root `.cif` (no target structure or sequence), or no CSV (no binders);
-- no usable `Run date` → `run_datetime` is null, logged as a warning. Such runs sort last
-  and show no date in the UI;
-- no usable `Algorithm` → `algorithm_version` is null.
+**Renaming a run directory makes it import again** under the new path, producing a
+  second `BinderRun` (and a second set of `Binder` rows) while the original row keeps
+  pointing at a path that no longer exists. Renaming is not a supported way to re-import.
 
 ### Running the import command
 
@@ -231,13 +212,14 @@ python manage.py import_run
 
 For each new run directory the command:
 
-1. **Reads `meta.json`**, taking `UniProt ID`, `Run date` and `Algorithm` from it and
-   keeping the remaining keys as the run's `metadata`.
+1. **Reads `meta.json`**, taking `UniProt ID`, `Run date`, `Algorithm`, `Hardware`,
+   `Description` and `Notes` from it and keeping the remaining keys as the run's
+   `metadata`, then **cross-checks** the UniProt ID and date against the directory name. Note that if a discrepancy is detected, only a warning will be logged, and the import process will continue.
 2. **Resolves the `Protein`** by that UniProt ID. If it already exists it is reused; otherwise
    the AlphaFold API (sequence, gene name, organism, structure CIF, PAE JSON) and UniProt
    API (biological function) are queried, the CIF and PAE JSON are downloaded to
    `MEDIA_ROOT/proteins/{uniprot_id}/`, and the `Protein` is created.
-3. **Creates a `BinderRun`** (algorithm/version, date, target CIF path, target sequence,
+3. **Creates a `BinderRun`** (algorithm, date, target CIF path, target sequence,
    `steps_config`, `metadata`).
 4. **Bulk-creates `Binder` records** from the CSV, linking each to its per-design CIF.
 
@@ -311,16 +293,16 @@ Returns full detail for a single protein, including all binder runs and their ra
 | Field | Type | Description |
 |---|---|---|
 | `id` | int | Database ID |
-| `algorithm_version` | string | Algorithm name and version, from the `Algorithm` key of `meta.json` |
-| `description` | string | Optional description |
+| `algorithm` | string | Algorithm name and version, from the `Algorithm` key of `meta.json` |
+| `description` | string | Optional description, from the `Description` key of `meta.json` |
 | `run_datetime` | datetime \| null | Date/time of the run, from the `Run date` key of `meta.json`. Null when that key is absent or unparseable |
-| `hardware` | string | Hardware used |
-| `notes` | string | Free-text notes |
+| `hardware` | string | Hardware used, from the `Hardware` key of `meta.json` |
+| `notes` | string | Free-text notes, from the `Notes` key of `meta.json` |
 | `run_dir` | string | Relative path to run directory under `MEDIA_ROOT` |
 | `cif_path` | string | Relative path to the target structure CIF file |
 | `target_sequence` | string | Target sequence parsed from the run's CIF file |
 | `steps_config` | object \| array | Parsed `steps.yaml`, with referenced config files inlined |
-| `metadata` | object | Remaining keys of `meta.json`, after `UniProt ID` / `Run date` / `Algorithm` are lifted out (null if none) |
+| `metadata` | object | Remaining keys of `meta.json`, after the six lifted keys are taken out (null if none) |
 | `user` | string | Username who imported the run |
 | `binder_count` | int | Number of binders in the run |
 

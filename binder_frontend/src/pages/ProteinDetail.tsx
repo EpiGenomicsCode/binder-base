@@ -188,7 +188,7 @@ function RunTargetStructure({ run }: { run: BinderRun }) {
 
 function runLabel(run: BinderRun): string {
   if (run.description) return run.description;
-  const parts = [run.algorithm_version, run.run_datetime ? new Date(run.run_datetime).toLocaleDateString() : null].filter(Boolean);
+  const parts = [run.algorithm, run.run_datetime ? new Date(run.run_datetime).toLocaleDateString() : null].filter(Boolean);
   return parts.length > 0 ? parts.join(" — ") : `Run #${run.id}`;
 }
 
@@ -466,7 +466,7 @@ export default function ProteinDetailPage() {
                   <div className="run-config-section">
                     <div className="run-section-title">Steps &amp; Configuration</div>
                     <dl className="run-config-dl">
-                      {run.algorithm_version && <><dt>Algorithm</dt><dd>{run.algorithm_version}</dd></>}
+                      {run.algorithm && <><dt>Algorithm</dt><dd>{run.algorithm}</dd></>}
                       {run.run_datetime && <><dt>Run date</dt><dd>{new Date(run.run_datetime).toLocaleString()}</dd></>}
                       {run.hardware && <><dt>Hardware</dt><dd>{run.hardware}</dd></>}
                       {run.description && <><dt>Description</dt><dd>{run.description}</dd></>}

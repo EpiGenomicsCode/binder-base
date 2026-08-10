@@ -32,7 +32,7 @@ export interface Binder {
 
 export interface BinderRun {
   id: number;
-  algorithm_version: string | null;
+  algorithm: string | null;
   description: string | null;
   run_datetime: string | null;
   hardware: string | null;

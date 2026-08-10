@@ -20,7 +20,7 @@ class Protein(models.Model):
 
 class BinderRun(models.Model):
     protein = models.ForeignKey(Protein, on_delete=models.CASCADE)
-    algorithm_version = models.CharField(max_length=255, null=True, blank=True)
+    algorithm = models.CharField(max_length=255, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
     run_datetime = models.DateTimeField(null=True, blank=True)
     hardware = models.CharField(max_length=255, null=True, blank=True)
@@ -35,10 +35,10 @@ class BinderRun(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        # algorithm_version and run_datetime are optional — meta.json may omit them.
+        # algorithm and run_datetime are optional — meta.json may omit them.
         parts = [
             self.protein.uniprot_id,
-            self.algorithm_version,
+            self.algorithm,
             self.run_datetime.strftime("%Y-%m-%d %H:%M:%S") if self.run_datetime else None,
         ]
         return " - ".join(p for p in parts if p) or f"Run #{self.pk}"
