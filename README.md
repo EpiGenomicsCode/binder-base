@@ -241,17 +241,7 @@ python manage.py import_meta_json --dry-run                    # preview, write 
 
 This is a **full resync, not a merge**. The six `meta.json`-owned fields are overwritten
 from the file, and **a key that is absent from the file sets its column back to null** —
-so the database always mirrors the current contents of `meta.json`:
-
-| Field | Source key |
-|---|---|
-| `protein` | `UniProt ID` |
-| `run_datetime` | `Run date` |
-| `algorithm` | `Algorithm` |
-| `hardware` | `Hardware` |
-| `description` | `Description` |
-| `notes` | `Notes` |
-| `metadata` | every remaining key (replaced wholesale, not merged) |
+so the database always mirrors the current contents of `meta.json`.
 
 Because it can clear fields in bulk, run it with `--dry-run` first. Output is a per-field
 `old -> new` diff:
