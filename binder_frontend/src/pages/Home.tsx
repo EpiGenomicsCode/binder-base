@@ -4,7 +4,7 @@ import ProteinSearchBar from "../components/ProteinSearchBar";
 import { getStats } from "../api/client";
 import type { Stats } from "../types";
 
-const EXAMPLES = ["Q9H9E1", "ANKRA2", "Homo sapiens", "Ankyrin"];
+const EXAMPLES = ["Tal1", "Lmo2", "Homo sapiens", "Notch1"];
 
 export default function Home() {
   const [query, setQuery] = useState("");
