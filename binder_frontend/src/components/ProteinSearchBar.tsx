@@ -46,6 +46,14 @@ export default function ProteinSearchBar({ value, onChange, onSubmit, examples, 
           onKeyDown={handleKeyDown}
           autoFocus
         />
+        {onSubmit && (
+          <button
+            className="hero-search-go-btn"
+            onClick={() => onSubmit(value.trim())}
+          >
+            GO
+          </button>
+        )}
       </div>
       {examples && examples.length > 0 && (
         <div className="hero-examples">

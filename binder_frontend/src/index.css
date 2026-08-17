@@ -313,6 +313,36 @@ h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter
   max-width: 800px;
   margin: 0 auto 1rem;
   position: relative;
+  display: flex;
+  align-items: center;
+  border: 2px solid #d1d5db;
+  border-radius: 99px;
+  background: #fff;
+  padding: 0.25rem 0.3rem 0.25rem 0;
+  transition: box-shadow 0.15s;
+}
+
+.hero-search-wrap:hover,
+.hero-search-wrap:focus-within {
+  box-shadow: 0 4px 16px rgba(15, 113, 115, 0.35);
+}
+
+.hero-search-go-btn {
+  flex: none;
+  padding: 0.6rem 1.6rem;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border: none;
+  border-radius: 99px;
+  background: var(--teal);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.hero-search-go-btn:hover {
+  background: #0c5c5e;
 }
 
 .hero-search-input {
@@ -329,6 +359,20 @@ h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter
 .hero-search-input:hover,
 .hero-search-input:focus {
   box-shadow: 0 4px 16px rgba(15, 113, 115, 0.35);
+}
+
+/* Input sits inside the shared pill: the wrapper owns the border and the
+   hover/focus glow, so the input itself stays fully transparent. */
+.hero-search-wrap .hero-search-input,
+.hero-search-wrap .hero-search-input:hover,
+.hero-search-wrap .hero-search-input:focus {
+  flex: 1;
+  min-width: 0;
+  padding: 0.6rem 1.25rem;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .hero-examples {
