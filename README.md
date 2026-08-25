@@ -11,6 +11,7 @@ Django + React application for tracking protein binder design experiments.
 3. [Run Directory Convention & Import Command](#run-directory-convention--import-command)
 4. [API Endpoints](#api-endpoints)
 5. [Production Deployment](#production-deployment)
+6. [Backup](#backup)
 
 ---
 
@@ -501,3 +502,17 @@ sudo systemctl restart gunicorn
 ```
 
 nginx serves the new `binder_frontend/dist/` build and static files directly, so no nginx reload is needed unless you changed `nginx.conf`.
+
+---
+
+## Backup
+
+### Backup the database
+
+```bash
+pg_dump -U <DB_USER> -d <DB_NAME> -f binderbase-$(date +%Y%m%d).sql
+```
+
+### Backing up the media files
+
+`MEDIA_ROOT` holds every downloaded AlphaFold structure and every imported run directory. Snapshot it alongside the database dump.

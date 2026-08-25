@@ -22,7 +22,13 @@ export default function Home() {
   return (
     <div className="home-page">
       <div className="home-header-img-wrap">
-        <img src="/header.png" alt="" className="home-header-img" />
+        <img
+          src="/header.webp"
+          alt=""
+          className="home-header-img"
+          width={2501}
+          height={900}
+        />
       </div>
       <div className="hero hero-page">
         <p className="hero-sub">

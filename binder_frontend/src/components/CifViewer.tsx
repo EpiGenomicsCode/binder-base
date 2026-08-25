@@ -50,13 +50,13 @@ const CONFIDENCE_LEGEND = [
 // Design-target structures carry the hotspot selection in the B-factor column
 // (score * 100 for hotspot residues, 0 for everything else) rather than pLDDT,
 // so they get their own two-color theme instead of the confidence bands.
-const HOTSPOT_COLOR = 0x0053d6;
-const NON_HOTSPOT_COLOR = 0x65cbf3;
+const HOTSPOT_COLOR = 0xffe119; // yellow
+const NON_HOTSPOT_COLOR = 0x6a3d9a; // deep purple
 const HOTSPOT_THEME_NAME = "hotspot-bfactor";
 
 const HOTSPOT_LEGEND = [
-  { color: "#0053D6", label: "Hotspot residue" },
-  { color: "#65CBF3", label: "Non-hotspot" },
+  { color: "#FFE119", label: "Hotspot residue" },
+  { color: "#6A3D9A", label: "Non-hotspot" },
 ];
 
 const LEGENDS: Record<CifColoring, { title: string; items: typeof CONFIDENCE_LEGEND } | null> = {
