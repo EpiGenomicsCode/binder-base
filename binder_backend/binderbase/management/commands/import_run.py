@@ -1,6 +1,7 @@
 import csv
 import glob as glob_module
 import json
+import logging
 import os
 import re
 import urllib.request
@@ -13,6 +14,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from binderbase.models import Binder, BinderRun, Protein
+
+logger = logging.getLogger(__name__)
 
 
 # Run directories are named <UNIPROT_ID>-<RUN_LABEL>-<YYYYMMDD>. Every imported value
@@ -28,6 +31,10 @@ UNIPROT_API = "https://rest.uniprot.org/uniprotkb/{}.json"
 # Maps CSV column names (lowercase) to Binder model field names
 CSV_COLUMN_MAP = {
     "sequence": "binder_sequence",
+    # BoltzGen names this column "designed_sequence"; without this entry every
+    # row fails the "binder_sequence" check below and the run imports 0 binders
+    # while still reporting success.
+    "designed_sequence": "binder_sequence",
     "final_rank": "final_rank",
     "quality_score": "quality_score",
     "design_to_target_iptm": "design_to_target_iptm",
@@ -281,15 +288,23 @@ def get_or_create_protein(uniprot_id):
     proteins_dir = os.path.join(settings.MEDIA_ROOT, "proteins", uniprot_id)
     cif_rel = pae_rel = None
 
+    # alphafold.ebi.ac.uk/files/ refuses requests from some networks even when the
+    # API responds, so a failed asset download must not abort an otherwise good run.
     if alphafold_data.get("cif_url"):
         cif_dest = os.path.join(proteins_dir, "model.cif")
-        _download_file(alphafold_data["cif_url"], cif_dest)
-        cif_rel = os.path.relpath(cif_dest, settings.MEDIA_ROOT)
+        try:
+            _download_file(alphafold_data["cif_url"], cif_dest)
+            cif_rel = os.path.relpath(cif_dest, settings.MEDIA_ROOT)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("CIF download failed for %s: %s", uniprot_id, exc)
 
     if alphafold_data.get("pae_doc_url"):
         pae_dest = os.path.join(proteins_dir, "pae.json")
-        _download_file(alphafold_data["pae_doc_url"], pae_dest)
-        pae_rel = os.path.relpath(pae_dest, settings.MEDIA_ROOT)
+        try:
+            _download_file(alphafold_data["pae_doc_url"], pae_dest)
+            pae_rel = os.path.relpath(pae_dest, settings.MEDIA_ROOT)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("PAE download failed for %s: %s", uniprot_id, exc)
 
     protein = Protein.objects.create(
         uniprot_id=uniprot_id,
@@ -485,10 +500,42 @@ class Command(BaseCommand):
                 **meta_fields,
             )
 
-            csv_files = glob_module.glob(os.path.join(designs_dir, "*.csv"))
+            # A BoltzGen run writes both all_designs_metrics.csv (every design) and
+            # final_designs_metrics_30.csv (the selected subset). Picking glob()[0]
+            # chose between them by filesystem order, so the number of binders
+            # imported varied run to run. Prefer the full table explicitly.
+            csv_files = sorted(glob_module.glob(os.path.join(designs_dir, "*.csv")))
+            preferred = [p for p in csv_files
+                         if os.path.basename(p) == "all_designs_metrics.csv"]
+            chosen = (preferred or csv_files or [None])[0]
             binder_count = 0
-            if csv_files:
-                binder_count = self._import_binders(run, designs_dir, csv_files[0])
+            if chosen:
+                if len(csv_files) > 1:
+                    self.stdout.write(
+                        f"  multiple CSVs present, importing {os.path.basename(chosen)}"
+                    )
+                binder_count = self._import_binders(run, designs_dir, chosen)
+
+            # A CSV with rows but no importable binders is a schema mismatch, not
+            # an empty run -- most likely the sequence column is named something
+            # CSV_COLUMN_MAP does not know. Reporting success here hides it: the
+            # run imports a Protein and a BinderRun with zero Binders and logs
+            # "Imported ... binders=0". Across a campaign that silently produces a
+            # populated database with no designs in it.
+            if chosen and binder_count == 0:
+                with open(chosen, newline="") as fh:
+                    reader = csv.DictReader(fh)
+                    cols = reader.fieldnames or []
+                    n_rows = sum(1 for _ in reader)
+                if n_rows > 0:
+                    mapped = sorted(set(CSV_COLUMN_MAP) & {c.strip().lower() for c in cols})
+                    raise CommandError(
+                        f"{entry.name}: {os.path.basename(chosen)} has {n_rows} rows but "
+                        f"0 binders were imported. No column maps to binder_sequence. "
+                        f"Columns recognised: {mapped or 'none'}. "
+                        f"Add the sequence column to CSV_COLUMN_MAP "
+                        f"(BoltzGen writes 'designed_sequence')."
+                    )
 
             self.stdout.write(self.style.SUCCESS(
                 f"Imported: {entry.name}  BinderRun id={run.id}  binders={binder_count}"
