@@ -55,7 +55,30 @@ class Binder(models.Model):
     failure_reason = models.TextField(null=True, blank=True)
     final_rank = models.PositiveBigIntegerField(null=True, blank=True)
     quality_score = models.FloatField(null=True, blank=True)
-    design_to_target_iptm = models.FloatField(null=True, blank=True)    
+    design_to_target_iptm = models.FloatField(null=True, blank=True)
+
+    # --- metrics promoted out of the `metrics` JSON blob ---------------------
+    # `metrics` keeps all ~245 columns, but a JSONField cannot be filtered or
+    # sorted efficiently, so the handful of fields people actually query are
+    # mirrored into real columns. The JSON stays authoritative and complete;
+    # these are a queryable projection of it, populated on import and by the
+    # backfill_metrics command.
+    #
+    # All nullable, deliberately: BinderBase ingests runs from any design tool
+    # (`algorithm` is free-form), so a run from something other than BoltzGen
+    # simply will not have these keys. Absence is normal, not an error.
+    min_interaction_pae = models.FloatField(null=True, blank=True)
+    bb_target_aligned_rmsd_design = models.FloatField(
+        null=True, blank=True,
+        help_text="Binder displacement after refolding, target-aligned. The placement metric.")
+    bb_rmsd_design = models.FloatField(null=True, blank=True)
+    designfolding_bb_rmsd = models.FloatField(
+        null=True, blank=True,
+        help_text="Monomer self-consistency. Source key is 'designfolding-bb_rmsd'.")
+    complex_plddt = models.FloatField(null=True, blank=True)
+    design_ptm = models.FloatField(null=True, blank=True)
+    pass_filters = models.BooleanField(null=True, blank=True)
+
     metrics = models.JSONField(null=True, blank=True, default=dict) 
     cif_path = models.FileField(null=True, blank=True, max_length=1024, verbose_name="CIF path")
     created_at = models.DateTimeField(auto_now_add=True)

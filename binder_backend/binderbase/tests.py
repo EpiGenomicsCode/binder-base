@@ -99,7 +99,13 @@ def _write_run(root, name=RUN_NAME, n_designs=5, sequence_column="designed_seque
     return run
 
 
-class ImportRunTestCase(TestCase):
+class _RunFixtureMixin:
+    """setUp shared by the import and promoted-column suites.
+
+    A mixin rather than a base TestCase: subclassing a TestCase re-runs every
+    one of its tests in the subclass, which double-reports failures.
+    """
+
     def setUp(self):
         self.media = tempfile.mkdtemp(prefix="binderbase-test-")
         self.addCleanup(shutil.rmtree, self.media, ignore_errors=True)
@@ -126,6 +132,9 @@ class ImportRunTestCase(TestCase):
     def _import(self):
         with override_settings(MEDIA_ROOT=self.media):
             call_command("import_run", verbosity=0)
+
+
+class ImportRunTestCase(_RunFixtureMixin, TestCase):
 
     # -- the regression that motivated this file ----------------------------
 
@@ -210,3 +219,110 @@ class ImportRunTestCase(TestCase):
         self._import()
         self.assertEqual(Binder.objects.count(), 3)
         self.assertEqual(Binder.objects.exclude(cif_path="").count(), 0)
+
+
+# ---------------------------------------------------------------------------
+# promoted metric columns
+# ---------------------------------------------------------------------------
+
+from io import StringIO                                        # noqa: E402
+from django.core.management import call_command as _call        # noqa: E402
+from binderbase.metrics import promoted, to_bool, to_float      # noqa: E402
+
+
+class MetricCastTestCase(TestCase):
+    """Everything in `metrics` arrives as a string from csv.DictReader, so the
+    casts are the whole correctness surface of the promoted columns."""
+
+    def test_floats_parse_from_strings(self):
+        self.assertEqual(to_float("6.92571"), 6.92571)
+        self.assertEqual(to_float("-0.5"), -0.5)
+        self.assertEqual(to_float(3.0), 3.0)
+
+    def test_non_finite_and_blank_become_null(self):
+        # These appear in real pipeline output. Left uncast they would break
+        # ordering and comparison on the column.
+        for v in ("", None, "nan", "NaN", "inf", "-inf", "n/a", "None"):
+            self.assertIsNone(to_float(v), f"{v!r} should cast to None")
+
+    def test_bools_parse_from_csv_text(self):
+        for v in ("True", "true", "1", True):
+            self.assertIs(to_bool(v), True, f"{v!r}")
+        for v in ("False", "false", "0", False):
+            self.assertIs(to_bool(v), False, f"{v!r}")
+        self.assertIsNone(to_bool("maybe"))
+        self.assertIsNone(to_bool(None))
+
+    def test_hyphenated_key_maps_to_identifier(self):
+        """'designfolding-bb_rmsd' is not a legal Python name; the mapping must
+        be explicit or the column silently stays null."""
+        out = promoted({"designfolding-bb_rmsd": "1.25"})
+        self.assertEqual(out["designfolding_bb_rmsd"], 1.25)
+
+    def test_absent_keys_are_null_not_an_error(self):
+        """BinderBase ingests runs from any design tool, so a run that is not
+        from BoltzGen simply will not carry these keys."""
+        out = promoted({"something_else": "1"})
+        self.assertTrue(all(v is None for v in out.values()))
+
+
+class PromotedColumnTestCase(_RunFixtureMixin, TestCase):
+    """Reuses the import fixture; asserts the columns mirror the JSON."""
+
+    def test_import_populates_columns_without_backfill(self):
+        _write_run(self.media, n_designs=5)
+        self._import()
+        self.assertEqual(
+            Binder.objects.filter(bb_target_aligned_rmsd_design__isnull=False).count(), 5,
+            "import_run must populate promoted columns, not leave them for a backfill")
+
+    def test_columns_match_the_json_they_mirror(self):
+        _write_run(self.media, n_designs=4)
+        self._import()
+        for b in Binder.objects.all():
+            self.assertEqual(b.bb_target_aligned_rmsd_design,
+                             float(b.metrics["bb_target_aligned_rmsd_design"]))
+            self.assertEqual(b.designfolding_bb_rmsd,
+                             float(b.metrics["designfolding-bb_rmsd"]))
+            self.assertEqual(b.pass_filters,
+                             b.metrics["pass_filters"].strip().lower() == "true")
+
+    def test_columns_are_queryable(self):
+        """The point of the exercise: filtering without scanning JSON."""
+        _write_run(self.media, n_designs=5)
+        self._import()
+        # fixture writes bb_target_aligned_rmsd_design = 1.0 + i for i in 1..5
+        self.assertEqual(Binder.objects.filter(
+            bb_target_aligned_rmsd_design__lt=3.5).count(), 2)
+        self.assertEqual(Binder.objects.filter(pass_filters=True).count(), 2)
+
+    def test_backfill_repairs_rows_with_null_columns(self):
+        _write_run(self.media, n_designs=5)
+        self._import()
+        Binder.objects.update(**{f: None for f in
+                                 ("min_interaction_pae", "bb_target_aligned_rmsd_design",
+                                  "designfolding_bb_rmsd", "pass_filters")})
+        self.assertEqual(
+            Binder.objects.filter(bb_target_aligned_rmsd_design__isnull=False).count(), 0)
+        _call("backfill_metrics", stdout=StringIO())
+        self.assertEqual(
+            Binder.objects.filter(bb_target_aligned_rmsd_design__isnull=False).count(), 5)
+
+    def test_backfill_is_idempotent(self):
+        _write_run(self.media, n_designs=3)
+        self._import()
+        out = StringIO()
+        _call("backfill_metrics", stdout=out)
+        self.assertIn("nothing to backfill", out.getvalue())
+
+    def test_scan_reports_coverage_without_writing(self):
+        _write_run(self.media, n_designs=3)
+        self._import()
+        Binder.objects.update(bb_target_aligned_rmsd_design=None)
+        out = StringIO()
+        _call("backfill_metrics", "--scan", stdout=out)
+        self.assertIn("100.0%", out.getvalue())
+        # --scan must not repair anything
+        self.assertEqual(
+            Binder.objects.filter(bb_target_aligned_rmsd_design__isnull=False).count(), 0)
+

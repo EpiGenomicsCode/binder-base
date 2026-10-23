@@ -36,6 +36,15 @@ class BinderSchema(Schema):
     final_rank: int | None
     quality_score: float | None
     design_to_target_iptm: float | None
+    # Promoted out of `metrics` so they can be filtered and sorted. The JSON
+    # still carries all ~245 columns; these are the queryable subset.
+    min_interaction_pae: float | None
+    bb_target_aligned_rmsd_design: float | None
+    bb_rmsd_design: float | None
+    designfolding_bb_rmsd: float | None
+    complex_plddt: float | None
+    design_ptm: float | None
+    pass_filters: bool | None
     metrics: dict | None
     cif_path: str | None
 
@@ -131,6 +140,13 @@ BINDER_SORT_FIELDS = {
     "iptm": "design_to_target_iptm",
     "length": "binder_length",
     "status": "status",
+    # Promoted metric columns. These are indexed, so sorting on them does not
+    # scan; the same keys inside `metrics` JSON could not be sorted at all.
+    "placement_rmsd": "bb_target_aligned_rmsd_design",
+    "monomer_rmsd": "designfolding_bb_rmsd",
+    "interaction_pae": "min_interaction_pae",
+    "plddt": "complex_plddt",
+    "ptm": "design_ptm",
 }
 
 MAX_BINDER_PAGE_SIZE = 200

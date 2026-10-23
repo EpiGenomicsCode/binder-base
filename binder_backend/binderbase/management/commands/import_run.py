@@ -13,6 +13,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
+from binderbase.metrics import promoted
 from binderbase.models import Binder, BinderRun, Protein
 
 logger = logging.getLogger(__name__)
@@ -603,6 +604,10 @@ class Command(BaseCommand):
 
                 if extra_metrics:
                     fields["metrics"] = extra_metrics
+                    # Mirror the queryable subset into real columns now, so a
+                    # freshly imported run needs no backfill pass. Same helper
+                    # the backfill uses, so the two cannot drift apart.
+                    fields.update(promoted(extra_metrics))
 
                 # Find matching CIF file in designs_dir by rank and file_name
                 rank = fields.get("final_rank")
