@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { getProtein } from "../api/client";
 import type { ProteinDetail } from "../types";
 import CifViewer from "../components/CifViewer";
 import PaeViewer from "../components/PaeViewer";
 import ProteinSearchBar from "../components/ProteinSearchBar";
-import RunTargetStructure from "../components/RunTargetStructure";
-import BindersTable from "../components/BindersTable";
+import RunCard from "../components/RunCard";
 import { LinkedSequenceBlock } from "../components/SequenceBlock";
-import { RunMetadata, RunStepsList, configSummary, runLabel } from "../components/RunConfig";
 
 function ProteinSequenceStructure({ protein }: { protein: ProteinDetail }) {
   const [copied, setCopied] = useState(false);
@@ -73,24 +71,24 @@ export default function ProteinDetailPage() {
   const [protein, setProtein] = useState<ProteinDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
 
   useEffect(() => {
     if (!id) return;
     getProtein(Number(id))
-      .then((p) => {
-        setProtein(p);
-        if (p.runs.length > 0) {
-          const paramId = Number(searchParams.get("run"));
-          const match = p.runs.find((r) => r.id === paramId);
-          setSelectedRunId(match ? match.id : p.runs[0].id);
-        }
-      })
+      .then(setProtein)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [id]);
+
+  // Runs used to be panels here, addressed as /proteins/:id?run=<id>. They have
+  // their own page now, so keep those links working rather than silently
+  // dropping the parameter.
+  const legacyRun = Number(searchParams.get("run"));
+  if (protein && legacyRun && protein.runs.some((r) => r.id === legacyRun)) {
+    return <Navigate to={`/runs/${legacyRun}`} replace />;
+  }
 
   if (loading) return <p className="status">Loading...</p>;
   if (error === "404") return <p className="status error">Protein not found.</p>;
@@ -147,64 +145,18 @@ export default function ProteinDetailPage() {
       {/* ── Sequence + Structure (hover-linked) ── */}
       <ProteinSequenceStructure protein={protein} />
 
-      {/* ── Runs + sidebar ── */}
+      {/* -- Runs -------------------------------------------------------- */}
+      {/* A browsing surface: one card per run with its verdict, linking to the
+          run page. The full panel that used to live here -- target viewer,
+          configuration, binder table -- is that page now. */}
       <h2 style={{ marginBottom: "0.75rem" }}>Binder Runs ({protein.runs.length})</h2>
       {protein.runs.length === 0 ? (
         <p className="status">No binder runs yet.</p>
       ) : (
-        <div className="pd-body row g-4">
-          <aside className="pd-run-nav col-12 col-lg-3">
-            {protein.runs.map((run) => (
-              <button
-                key={run.id}
-                className={`pd-run-nav-item${selectedRunId === run.id ? " active" : ""}`}
-                onClick={() => {
-                  setSelectedRunId(run.id);
-                  setSearchParams({ run: String(run.id) }, { replace: true });
-                }}
-              >
-                {runLabel(run)}
-                <span className="run-nav-count">{run.binder_count}</span>
-              </button>
-            ))}
-          </aside>
-
-          <div className="pd-run-content col-12 col-lg-9">
-            {(() => {
-              const run = protein.runs.find((r) => r.id === selectedRunId);
-              if (!run) return null;
-              return (
-                <>
-                  <RunTargetStructure run={run} />
-
-                  {/*
-                    Collapsed by default. Provenance is tens of key/value rows
-                    plus every step's full config -- needed to reproduce a run,
-                    but not what anyone reads first. `key` re-collapses it when
-                    the selected run changes.
-                  */}
-                  <details key={run.id} className="run-config-section">
-                    <summary className="run-section-title">
-                      Steps &amp; Configuration
-                      <span className="run-config-hint">{configSummary(run)}</span>
-                    </summary>
-                    <dl className="run-config-dl">
-                      {run.algorithm && <><dt>Algorithm</dt><dd>{run.algorithm}</dd></>}
-                      {run.run_datetime && <><dt>Run date</dt><dd>{new Date(run.run_datetime).toLocaleString()}</dd></>}
-                      {run.hardware && <><dt>Hardware</dt><dd>{run.hardware}</dd></>}
-                      {run.description && <><dt>Description</dt><dd>{run.description}</dd></>}
-                      <RunMetadata metadata={run.metadata} />
-                      {run.notes && <><dt>Notes</dt><dd>{run.notes}</dd></>}
-                    </dl>
-                    <RunStepsList key={run.id} stepsConfig={run.steps_config} />
-                  </details>
-                  <div className="run-section-title">Binders</div>
-                  {/* key resets table state (page, sort, filter) when the run changes */}
-                  <BindersTable key={run.id} runId={run.id} runCifPath={run.cif_path} />
-                </>
-              );
-            })()}
-          </div>
+        <div className="run-card-list">
+          {protein.runs.map((run) => (
+            <RunCard key={run.id} run={run} />
+          ))}
         </div>
       )}
     </div>
