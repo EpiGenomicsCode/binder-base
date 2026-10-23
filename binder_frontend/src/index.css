@@ -1268,13 +1268,77 @@ dd { margin: 0; word-break: break-word; }
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Gutter the tick labels sit in, outside the plotted square. */
+  padding: 0 0 1.15rem 2.4rem;
+}
+
+/* The plot is the largest square that fits, and the canvas fills it exactly.
+   The canvas used to be stretched to the box with object-fit: contain, which
+   letterboxed it -- fine to look at, but then client coordinates no longer map
+   onto matrix indices, so the hover readout would read the wrong residue
+   everywhere except the centre line. */
+.pae-square {
+  position: relative;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 1 / 1;
+  cursor: crosshair;
 }
 
 .pae-canvas {
+  display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
   image-rendering: pixelated;
+}
+
+.pae-crosshair {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+.pae-crosshair-v {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+.pae-crosshair-h {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+.pae-tick {
+  position: absolute;
+  font-size: 0.65rem;
+  color: #999;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.pae-tick-x {
+  top: 100%;
+  transform: translate(-50%, 0.2rem);
+}
+.pae-tick-y {
+  right: 100%;
+  transform: translate(-0.35rem, -50%);
+}
+
+.pae-tooltip {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(17, 24, 39, 0.92);
+  color: #fff;
+  font-size: 0.7rem;
+  line-height: 1.25;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 .pae-status {

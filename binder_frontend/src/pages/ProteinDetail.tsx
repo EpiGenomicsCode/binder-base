@@ -113,7 +113,11 @@ function ProteinSequenceStructure({ protein }: { protein: ProteinDetail }) {
         <div className="pd-structure-section">
           <div className="pd-structure-plots">
             {protein.pae_json_path && (
-              <PaeViewer paeJsonPath={protein.pae_json_path} />
+              <PaeViewer
+                paeJsonPath={protein.pae_json_path}
+                highlightResidue={hoverResno}
+                onHoverResidue={setHoverResno}
+              />
             )}
             {protein.cif_path && (
               <CifViewer
