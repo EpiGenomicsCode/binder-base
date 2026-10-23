@@ -1,7 +1,46 @@
-psycopg2-binary
-gunicorn
-django-ninja
-django-environ
-django-extensions
-graphviz
-PyYAML
+# Pinned to the versions running in production, captured with
+# `/opt/binder/venv/bin/pip freeze` on 2026-10-23.
+#
+# Pinned because binderbase_deploy.sh runs `pip install -r requirements.txt` on
+# every deploy. Unpinned, that is a no-op for packages already satisfied, so the
+# live venv has not drifted -- but any rebuild of it installs whatever the
+# resolver picks that day. Resolving this file unpinned on the day it was
+# written would have moved gunicorn 25.3.0 -> 26.2.0 (a major version),
+# Django 6.0.4 -> 6.1.2 and sqlparse 0.5.5 -> 0.6.0, none of it deliberate and
+# none of it tested.
+#
+# To upgrade something, change it here in its own commit so the version bump is
+# reviewable and revertible on its own. To refresh the whole set after an
+# intentional upgrade, re-run pip freeze in the production venv.
+
+# --- direct dependencies ---------------------------------------------------
+# Django was previously not listed at all and arrived transitively through
+# django-ninja, which left the framework version of a Django application at the
+# mercy of a sub-dependency's resolver. It is declared here now; the version is
+# unchanged from what is installed.
+Django==6.0.4
+django-ninja==1.6.2
+django-environ==0.13.0
+psycopg2-binary==2.9.11
+gunicorn==25.3.0
+PyYAML==6.0.3
+
+# Diagnostic/developer tooling. Installed in production today, so pinned here to
+# keep this file a faithful description of that environment rather than an
+# aspiration. Splitting these into requirements-dev.txt would be a reasonable
+# follow-up; it is deliberately not bundled with the pinning change, because it
+# would alter what production installs.
+django-extensions==4.1
+graphviz==0.21
+
+# --- transitive, pinned for reproducibility --------------------------------
+# Not imported directly by this project. Listed so that a rebuilt virtualenv is
+# the same virtualenv, which is the point of pinning at all.
+annotated-types==0.7.0
+asgiref==3.11.1
+packaging==26.0
+pydantic==2.12.5
+pydantic_core==2.41.5
+sqlparse==0.5.5
+typing-inspection==0.4.2
+typing_extensions==4.15.0
