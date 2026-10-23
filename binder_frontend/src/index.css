@@ -2709,6 +2709,42 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
   background: #fafafa;
 }
 
+/* "Steps & Configuration" is a <details>. Replace the default disclosure
+   triangle with a chevron on the right so the header matches the other
+   .run-section-title bars, which are plain divs. */
+.run-config-section > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+.run-config-section > summary::-webkit-details-marker {
+  display: none;
+}
+.run-config-section > summary:hover {
+  background: var(--teal-light);
+}
+.run-config-section > summary::after {
+  content: "\25BC";
+  margin-left: auto;
+  font-size: 0.65rem;
+  color: var(--teal);
+  transition: transform 0.15s;
+}
+.run-config-section[open] > summary::after {
+  transform: rotate(180deg);
+}
+
+.run-config-hint {
+  font-size: 0.75rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #999;
+}
+
 .run-target-body {
   display: flex;
   height: 400px;

@@ -260,6 +260,27 @@ function normalizeSteps(stepsConfig: unknown): RunStep[] {
   return rawList ? rawList.map(fromEntry) : [];
 }
 
+// A one-line preview for the collapsed "Steps & Configuration" header, so the
+// section advertises its contents rather than hiding them behind a bare title.
+function configSummary(run: BinderRun): string {
+  const parts: string[] = [];
+  const steps = normalizeSteps(run.steps_config).length;
+  if (steps) parts.push(`${steps} step${steps === 1 ? "" : "s"}`);
+  // `metadata` is typed `unknown`; narrow through a local so the check holds.
+  const meta: unknown = run.metadata;
+  const metaCount =
+    meta !== null && typeof meta === "object" && !Array.isArray(meta)
+      ? Object.keys(meta).length
+      : 0;
+  const fields =
+    metaCount +
+    [run.algorithm, run.run_datetime, run.hardware, run.description, run.notes].filter(
+      Boolean
+    ).length;
+  if (fields) parts.push(`${fields} field${fields === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+}
+
 function RunStepsList({ stepsConfig }: { stepsConfig: unknown }) {
   const steps = normalizeSteps(stepsConfig);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -463,8 +484,17 @@ export default function ProteinDetailPage() {
                 <>
                   <RunTargetStructure run={run} />
 
-                  <div className="run-config-section">
-                    <div className="run-section-title">Steps &amp; Configuration</div>
+                  {/*
+                    Collapsed by default. Provenance is tens of key/value rows
+                    plus every step's full config -- needed to reproduce a run,
+                    but not what anyone reads first. `key` re-collapses it when
+                    the selected run changes.
+                  */}
+                  <details key={run.id} className="run-config-section">
+                    <summary className="run-section-title">
+                      Steps &amp; Configuration
+                      <span className="run-config-hint">{configSummary(run)}</span>
+                    </summary>
                     <dl className="run-config-dl">
                       {run.algorithm && <><dt>Algorithm</dt><dd>{run.algorithm}</dd></>}
                       {run.run_datetime && <><dt>Run date</dt><dd>{new Date(run.run_datetime).toLocaleString()}</dd></>}
@@ -474,7 +504,7 @@ export default function ProteinDetailPage() {
                       {run.notes && <><dt>Notes</dt><dd>{run.notes}</dd></>}
                     </dl>
                     <RunStepsList key={run.id} stepsConfig={run.steps_config} />
-                  </div>
+                  </details>
                   <div className="run-section-title">Binders</div>
                   {/* key resets table state (page, sort, filter) when the run changes */}
                   <BindersTable key={run.id} runId={run.id} runCifPath={run.cif_path} />
@@ -543,8 +573,18 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
         />
         {hasCifs ? (
           <div className="cif-modal-viewers">
+            {/*
+              Same file RunTargetStructure shows, so it gets the same theme: the
+              run-root CIF encodes the hotspot selection in B_iso_or_equiv
+              (score*100 for selected residues, 0 elsewhere), not pLDDT.
+
+              The Target+Binder complex below deliberately stays uncolored. Its
+              B-factors are per-atom confidence on a 0-1 scale, so "hotspot"
+              would paint every atom yellow and "confidence" would read the whole
+              structure as very low.
+            */}
             {runCifPath ? (
-              <CifViewer cifPath={runCifPath} label="Target protein" coloring="none" />
+              <CifViewer cifPath={runCifPath} label="Target protein" coloring="hotspot" />
             ) : (
               <div className="cif-viewer-wrap">
                 <div className="cif-viewer-label">Target protein</div>
