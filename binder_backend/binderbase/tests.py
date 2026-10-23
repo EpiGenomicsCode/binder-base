@@ -326,3 +326,119 @@ class PromotedColumnTestCase(_RunFixtureMixin, TestCase):
         self.assertEqual(
             Binder.objects.filter(bb_target_aligned_rmsd_design__isnull=False).count(), 0)
 
+
+# ---------------------------------------------------------------------------
+# run summary endpoint
+# ---------------------------------------------------------------------------
+
+from django.test import Client                                  # noqa: E402
+
+
+class RunSummaryTestCase(TestCase):
+    """Built on synthetic binders so the arithmetic is checkable by hand.
+
+    The real ACLY run has zero placement hits, which cannot exercise the
+    enrichment path at all.
+    """
+
+    def setUp(self):
+        self.protein = Protein.objects.create(
+            uniprot_id="P12345", gene_name="TESTG", sequence="MKV", length=3)
+        self.run = BinderRun.objects.create(
+            protein=self.protein, algorithm="BlitzGen 1.0.0", hardware="A100",
+            run_dir="runs/P12345-TESTG_HPA1-20261023",
+            metadata={"Hotspot residues": "10-40", "Crop length": 120,
+                      "Container": "blitzgen.sif"})
+        # 20 binders, quality_score descending with rank.
+        # Placement: ranks 1-5 and 11 are hits (<2.0); 6 hits in 20 overall.
+        #   base rate   = 6/20  = 0.30
+        #   top-10 rate = 5/10  = 0.50   -> fold 1.67
+        hits = {1, 2, 3, 4, 5, 11}
+        for i in range(1, 21):
+            Binder.objects.create(
+                run=self.run, binder_sequence="A" * (10 + i), binder_length=10 + i,
+                final_rank=i, quality_score=1.0 - i * 0.01,
+                design_to_target_iptm=0.9 - i * 0.02,
+                min_interaction_pae=3.0 + i,
+                bb_target_aligned_rmsd_design=(1.0 if i in hits else 25.0),
+                designfolding_bb_rmsd=(0.9 if i <= 12 else 9.0),
+                pass_filters=(i <= 4),
+                metrics={"note": "synthetic"},
+            )
+
+    def _summary(self, **params):
+        resp = Client().get(f"/api/runs/{self.run.id}/summary", params)
+        self.assertEqual(resp.status_code, 200)
+        return resp.json()
+
+    def test_counts_and_rates(self):
+        d = self._summary()
+        self.assertEqual(d["counts"], {
+            "designs": 20, "passed_filters": 4,
+            "placement_hits": 6, "monomer_consistent": 12})
+        self.assertAlmostEqual(d["rates"]["placement"], 0.30)
+        self.assertAlmostEqual(d["rates"]["monomer"], 0.60)
+
+    def test_enrichment_against_base_rate(self):
+        d = self._summary()
+        self.assertAlmostEqual(d["enrichment"]["base_rate"], 0.30)
+        k10 = next(c for c in d["enrichment"]["curve"] if c["k"] == 10)
+        self.assertAlmostEqual(k10["hit_rate"], 0.50)
+        self.assertAlmostEqual(k10["fold"], 1.67, places=2)
+
+    def test_enrichment_skips_k_larger_than_the_run(self):
+        """20 binders must not produce a k=30 point computed over 20."""
+        ks = [c["k"] for c in self._summary()["enrichment"]["curve"]]
+        self.assertEqual(ks, [10])
+
+    def test_thresholds_are_query_parameters(self):
+        """2 A is a convention, not a property of the data."""
+        d = self._summary(placement_threshold=30.0)
+        self.assertEqual(d["counts"]["placement_hits"], 20)
+        self.assertEqual(d["rates"]["placement_threshold"], 30.0)
+
+    def test_histogram_reports_overflow_separately(self):
+        """Clamped outliers must be distinguishable, or the end bar lies.
+
+        The real ACLY run has 56 of 65 in its top placement bin sitting beyond
+        the 40 A ceiling, so without this the UI renders "38-40" for what is
+        actually ">=38, including values at 100".
+        """
+        # placement histogram spans 0-40; put one design well past the ceiling
+        Binder.objects.create(
+            run=self.run, binder_sequence="A" * 30, final_rank=99,
+            quality_score=0.0, bb_target_aligned_rmsd_design=100.0, metrics={})
+        h = self._summary()["histograms"]["bb_target_aligned_rmsd_design"]
+        self.assertEqual(h["n"], 21)
+        self.assertEqual(sum(h["counts"]), 21, "clamped values still counted in a bin")
+        self.assertEqual(h["overflow"], 1, "but reported separately so the bar is honest")
+        self.assertEqual(h["underflow"], 0)
+
+    def test_best_is_the_top_ranked_design(self):
+        d = self._summary()
+        self.assertEqual(d["best"]["final_rank"], 1)
+        self.assertAlmostEqual(d["best"]["bb_target_aligned_rmsd_design"], 1.0)
+
+    def test_target_and_provenance_come_from_metadata(self):
+        d = self._summary()
+        self.assertEqual(d["target"]["epitope"], "10-40")
+        self.assertEqual(d["provenance"]["container"], "blitzgen.sif")
+        self.assertEqual(d["provenance"]["algorithm"], "BlitzGen 1.0.0")
+
+    def test_empty_run_does_not_divide_by_zero(self):
+        empty = BinderRun.objects.create(
+            protein=self.protein, run_dir="runs/P12345-EMPTY-20261023", metadata={})
+        d = Client().get(f"/api/runs/{empty.id}/summary").json()
+        self.assertEqual(d["counts"]["designs"], 0)
+        self.assertEqual(d["rates"]["placement"], 0.0)
+        self.assertIsNone(d["best"])
+        self.assertEqual(d["enrichment"]["curve"], [])
+
+    def test_run_without_metadata_does_not_error(self):
+        bare = BinderRun.objects.create(
+            protein=self.protein, run_dir="runs/P12345-BARE-20261023", metadata=None)
+        d = Client().get(f"/api/runs/{bare.id}/summary").json()
+        self.assertIsNone(d["target"]["epitope"])
+
+    def test_unknown_run_is_404(self):
+        self.assertEqual(Client().get("/api/runs/999999/summary").status_code, 404)
