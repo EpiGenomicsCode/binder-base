@@ -11,6 +11,23 @@ serves. `binderbase_deploy.sh` adds those four things and changes nothing else.
 
 ---
 
+## Install the script outside the repo
+
+It is versioned here, but it must *run* from a path the deploy does not touch:
+
+```bash
+git show origin/main:misc/deploy/binderbase_deploy.sh > /opt/binder/binderbase_deploy.sh
+chmod +x /opt/binder/binderbase_deploy.sh
+```
+
+Running it from inside the checkout is not a style preference. The script does
+`git checkout "$REF"` on the very tree it lives in, and bash reads a script
+incrementally rather than all at once, so the file changes under the running
+interpreter and the deploy fails at an arbitrary point. Re-run the two commands
+above after any release that changes the script.
+
+---
+
 ## Code deployment
 
 ```bash

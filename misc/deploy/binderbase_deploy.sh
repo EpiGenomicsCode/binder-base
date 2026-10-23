@@ -17,6 +17,14 @@
 # would weaken that boundary for a step performed every few weeks. The script
 # stages everything and hands off one command to an administrator.
 #
+# INSTALL IT OUTSIDE THE REPO. It is versioned here, but it must RUN from
+# somewhere the deploy does not touch -- /opt/binder/binderbase_deploy.sh. A
+# script living inside the tree it checks out gets swapped mid-execution by its
+# own `git checkout`, and bash reads scripts incrementally, so the result is an
+# arbitrary failure partway through a deploy. Install or update it with:
+#     git show origin/main:misc/deploy/binderbase_deploy.sh > /opt/binder/binderbase_deploy.sh
+#     chmod +x /opt/binder/binderbase_deploy.sh
+#
 set -euo pipefail
 
 REPO=${BINDERBASE_REPO:-/opt/binder/binder-base}
