@@ -1,10 +1,25 @@
 import { useState } from "react";
 import type { BinderRun } from "../types";
 import CifViewer from "./CifViewer";
+import PaeViewer from "./PaeViewer";
 import { LinkedSequenceBlock } from "./SequenceBlock";
 
 // Run's target structure viewer + target sequence, hover-linked the same way.
-export default function RunTargetStructure({ run }: { run: BinderRun }) {
+/**
+ * `paeJsonPath` is the parent protein's PAE, not a per-run file, and that is
+ * correct: BoltzGen crops with res_reindex=False, so the cropped target keeps
+ * the full protein's residue numbering and the two share a coordinate system.
+ * Hover linking across all three panels works for the same reason.
+ */
+export default function RunTargetStructure({
+  run,
+  paeJsonPath = null,
+  epitope = null,
+}: {
+  run: BinderRun;
+  paeJsonPath?: string | null;
+  epitope?: [number, number] | null;
+}) {
   const [copied, setCopied] = useState(false);
   const [hoverResno, setHoverResno] = useState<number | null>(null);
 
@@ -19,7 +34,17 @@ export default function RunTargetStructure({ run }: { run: BinderRun }) {
   return (
     <div className="run-target-section">
       <div className="run-section-title">DESIGN TARGET PROTEIN STRUCTURE</div>
-      <div className="run-target-body">
+      <div className={`run-target-body${paeJsonPath ? " has-pae" : ""}`}>
+        {paeJsonPath && (
+          <div className="run-target-pae">
+            <PaeViewer
+              paeJsonPath={paeJsonPath}
+              highlightResidue={hoverResno}
+              onHoverResidue={setHoverResno}
+              highlightRange={epitope}
+            />
+          </div>
+        )}
         <div className="run-target-cif">
           {run.cif_path ? (
             <CifViewer

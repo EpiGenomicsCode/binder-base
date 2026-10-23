@@ -123,7 +123,13 @@ export default function RunDetailPage() {
       )}
 
       {/* 2. Target and epitope */}
-      {run && <RunTargetStructure run={run} />}
+      {run && (
+        <RunTargetStructure
+          run={run}
+          paeJsonPath={protein?.pae_json_path ?? null}
+          epitope={parseEpitope(target.epitope)}
+        />
+      )}
 
       {/* 3. Distributions. A run with one lucky design and a broadly good run
           have the same maximum, so the shape is the point. */}
@@ -179,6 +185,14 @@ export default function RunDetailPage() {
       )}
     </div>
   );
+}
+
+/** meta.json records the epitope as "764-861", in full-protein numbering. */
+function parseEpitope(v: string | null): [number, number] | null {
+  if (!v) return null;
+  const m = /^\s*(\d+)\s*[-\u2013]\s*(\d+)\s*$/.exec(v);
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2])];
 }
 
 function fmt(v: number | null | undefined): string {

@@ -3129,3 +3129,14 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
 .run-card-right { text-align: right; flex-shrink: 0; }
 .run-card-count { display: block; font-size: 1.1rem; font-weight: 700; color: var(--teal, #0d9488); line-height: 1.1; }
 .run-card-count-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; color: #aaa; }
+
+/* Run target section with the PAE panel alongside: three panels, so let them
+   wrap rather than squeezing the structure viewer to nothing. */
+.run-target-body.has-pae { flex-wrap: wrap; height: auto; }
+.run-target-body.has-pae > * { min-width: 280px; flex: 1 1 280px; height: 340px; }
+.run-target-pae { display: flex; border-right: 1px solid #ebebeb; overflow: hidden; min-height: 0; }
+
+/* Epitope band on the PAE plot: the region a run was designed against. */
+.pae-band { position: absolute; pointer-events: none; background: rgba(180, 83, 9, 0.16); }
+.pae-band-v { top: 0; bottom: 0; }
+.pae-band-h { left: 0; right: 0; }
