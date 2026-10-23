@@ -32,8 +32,8 @@ VENV=${BINDERBASE_VENV:-/opt/binder/venv}
 BACKUPS=${BINDERBASE_BACKUPS:-/opt/binder/backups}
 SERVICE=${BINDERBASE_SERVICE:-gunicorn}   # named for the handoff message only
 HEALTH_URL=${BINDERBASE_HEALTH_URL:-http://127.0.0.1:8000/api/stats}
-DB_NAME=${BINDERBASE_DB:-binderbase}
-DB_USER=${BINDERBASE_DB_USER:-binder}
+# DB_NAME/DB_USER are NOT defaulted here; load_db_settings reads them from
+# Django. See the comment there.
 
 DRY_RUN=0; ROLLBACK=0; VERIFY=0; REF=""
 for a in "$@"; do
@@ -65,6 +65,49 @@ BANNER
 say() { echo "[$(date +%H:%M:%S)] $*"; }
 die() { echo "[FATAL] $*" >&2; exit 1; }
 
+# Ask Django where the database is, rather than keeping a second copy of the
+# connection details here. An earlier version defaulted to user "binder" and
+# database "binderbase"; the real user is different, so pg_dump failed password
+# authentication and the deploy stopped before it had done anything. A default
+# that is wrong on the only machine this runs on is worse than no default.
+#
+# Runs in a subshell so activating the venv does not leak into this one.
+# Explicit BINDERBASE_DB / BINDERBASE_DB_USER still win, for dumping or
+# restoring against a scratch database.
+load_db_settings() {
+  local out
+  if ! out=$(
+        cd "$REPO/binder_backend" &&
+        # shellcheck disable=SC1091
+        . "$VENV/bin/activate" &&
+        python -c '
+import os, shlex, django
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "binder_backend.settings")
+django.setup()
+from django.conf import settings
+d = settings.DATABASES["default"]
+for k, v in (("DB_NAME", d["NAME"]), ("DB_USER", d["USER"]),
+             ("DB_PASS", d.get("PASSWORD") or ""),
+             ("DB_HOST", d.get("HOST") or ""),
+             ("DB_PORT", str(d.get("PORT") or ""))):
+    print("%s=%s" % (k, shlex.quote(str(v))))
+'
+      ); then
+    die "could not read the database settings from Django at $REPO/binder_backend.
+        Override by hand if needed:  export BINDERBASE_DB_USER=... PGPASSWORD=..."
+  fi
+  eval "$out"
+
+  DB_NAME=${BINDERBASE_DB:-$DB_NAME}
+  DB_USER=${BINDERBASE_DB_USER:-$DB_USER}
+  # Separate `if`s, not `&&` chains: under `set -e` a chain whose first test
+  # fails would take the whole script down.
+  if [ -n "$DB_PASS" ] && [ -z "${PGPASSWORD:-}" ]; then export PGPASSWORD="$DB_PASS"; fi
+  if [ -n "$DB_HOST" ] && [ -z "${PGHOST:-}" ]; then export PGHOST="$DB_HOST"; fi
+  if [ -n "$DB_PORT" ] && [ -z "${PGPORT:-}" ]; then export PGPORT="$DB_PORT"; fi
+  say "database: $DB_NAME as $DB_USER${PGHOST:+ at $PGHOST}"
+}
+
 # --- verify -----------------------------------------------------------------
 if [ "$VERIFY" = 1 ]; then
   for i in $(seq 1 15); do
@@ -82,6 +125,7 @@ fi
 if [ "$ROLLBACK" = 1 ]; then
   PREV=$(cat "$BACKUPS/PREVIOUS_REF" 2>/dev/null) || die "no PREVIOUS_REF; nothing to roll back to"
   DUMP=$(ls -t "$BACKUPS"/db-*.sql.gz 2>/dev/null | head -1) || die "no database dump found"
+  load_db_settings
   say "rolling back code to $PREV and database to $(basename "$DUMP")"
   read -rp "This DISCARDS everything written since that dump. Type the ref to confirm: " c
   [ "$c" = "$PREV" ] || die "confirmation did not match"
@@ -108,6 +152,7 @@ git rev-parse --verify --quiet "$REF^{commit}" >/dev/null || die "ref not found:
 # Taken first and verified. A migration that half-applies to a table with
 # millions of rows is not something to discover without a dump in hand.
 if [ "$DRY_RUN" = 0 ]; then
+  load_db_settings
   DUMP="$BACKUPS/db-$(ts).sql.gz"
   say "dumping database -> $DUMP"
   pg_dump -U "$DB_USER" -d "$DB_NAME" | gzip > "$DUMP"
