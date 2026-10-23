@@ -209,4 +209,5 @@ __marimo__/
 # Node / frontend
 binder_frontend/node_modules/
 binder_frontend/dist/
-.DS_Store
+.DS_Storebinder_frontend/dist.new/
+binder_frontend/dist.old/
