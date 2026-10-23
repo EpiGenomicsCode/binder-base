@@ -96,3 +96,57 @@ export interface ParsedStructure {
   residues: ParsedResidue[];
   isAlphaFold: boolean;
 }
+
+// --- run summary (GET /api/runs/{id}/summary) ------------------------------
+// Server-side aggregate. A run holds thousands of binders, so the page asks
+// for distributions rather than rows.
+
+export interface Histogram {
+  edges: number[];      // bins + 1 edges
+  counts: number[];
+  n: number;            // non-null values binned
+  underflow: number;
+  overflow: number;     // values past the last edge, clamped into it
+}
+
+export interface EnrichmentPoint {
+  k: number;
+  hit_rate: number;
+  fold: number | null;  // null when the run's base rate is 0
+}
+
+export interface RunSummary {
+  run_id: number;
+  protein: { id: number; uniprot_id: string; gene_name: string | null };
+  target: {
+    epitope: string | null;
+    crop_length: number | null;
+    structure_source: string | null;
+    masked_faces: string | null;
+  };
+  counts: {
+    designs: number;
+    passed_filters: number;
+    placement_hits: number;
+    monomer_consistent: number;
+  };
+  rates: {
+    pass: number;
+    placement: number;
+    monomer: number;
+    placement_threshold: number;
+    monomer_threshold: number;
+  };
+  best: {
+    binder_id: number;
+    final_rank: number | null;
+    quality_score: number | null;
+    design_to_target_iptm: number | null;
+    min_interaction_pae: number | null;
+    bb_target_aligned_rmsd_design: number | null;
+    designfolding_bb_rmsd: number | null;
+  } | null;
+  histograms: Record<string, Histogram>;
+  enrichment: { base_rate: number; curve: EnrichmentPoint[] };
+  provenance: Record<string, unknown>;
+}

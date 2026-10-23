@@ -12,6 +12,7 @@ const ProteinList = lazy(() => import("./pages/ProteinList"));
 const ProteinDetail = lazy(() => import("./pages/ProteinDetail"));
 const About = lazy(() => import("./pages/About"));
 const StructurePrep = lazy(() => import("./pages/StructurePrep"));
+const RunDetail = lazy(() => import("./pages/RunDetail"));
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -33,6 +34,7 @@ export default function App() {
               <Route path="/" element={<Home />} />
               <Route path="/proteins" element={<ProteinList />} />
               <Route path="/proteins/:id" element={<ProteinDetail />} />
+              <Route path="/runs/:id" element={<RunDetail />} />
               <Route path="/about" element={<About />} />
               <Route path="/structure-prep" element={<StructurePrep />} />
             </Routes>
