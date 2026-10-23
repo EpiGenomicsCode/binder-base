@@ -90,4 +90,21 @@ class Binder(models.Model):
             # Backs the default ordering of the per-run binder listing, which
             # pages through runs holding thousands of designs.
             models.Index(fields=["run", "final_rank"], name="binder_run_rank_idx"),
+            # The promoted metric columns, indexed for sorting and filtering
+            # across runs. These must stay in step with migration 0013: they
+            # were created there but never declared here, so the autodetector
+            # treated them as indexes the model no longer wants and offered to
+            # drop all five on the next unrelated makemigrations.
+            models.Index(fields=["bb_target_aligned_rmsd_design"],
+                         name="binder_placement_rmsd_idx"),
+            models.Index(fields=["designfolding_bb_rmsd"],
+                         name="binder_mono_rmsd_idx"),
+            models.Index(fields=["min_interaction_pae"],
+                         name="binder_interaction_pae_idx"),
+            # The cross-proteome query people will actually run is "good
+            # confidence AND good interface", so index that pair as well as the
+            # columns alone.
+            models.Index(fields=["design_to_target_iptm", "min_interaction_pae"],
+                         name="binder_iptm_pae_idx"),
+            models.Index(fields=["pass_filters"], name="binder_pass_filters_idx"),
         ]
