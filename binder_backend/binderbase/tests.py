@@ -442,3 +442,54 @@ class RunSummaryTestCase(TestCase):
 
     def test_unknown_run_is_404(self):
         self.assertEqual(Client().get("/api/runs/999999/summary").status_code, 404)
+
+    # -- contract with the frontend -----------------------------------------
+
+    def test_summary_payload_shape_is_the_frontend_contract(self):
+        """The RunSummary interface in binder_frontend/src/types/index.ts is
+        written against these exact keys.
+
+        A rename here does not break the build on either side -- the frontend
+        reads JSON, so a missing key arrives as undefined and the run page
+        quietly renders blanks. Pinning the shape here is what turns that into
+        a failing test instead of an empty panel nobody notices.
+        """
+        d = self._summary()
+        self.assertEqual(
+            set(d),
+            {"run_id", "protein", "target", "counts", "rates", "best",
+             "histograms", "enrichment", "provenance"})
+        self.assertEqual(set(d["protein"]), {"id", "uniprot_id", "gene_name"})
+        self.assertEqual(set(d["target"]),
+                         {"epitope", "crop_length", "structure_source", "masked_faces"})
+        self.assertEqual(set(d["counts"]),
+                         {"designs", "passed_filters", "placement_hits",
+                          "monomer_consistent"})
+        self.assertEqual(set(d["rates"]),
+                         {"pass", "placement", "monomer",
+                          "placement_threshold", "monomer_threshold"})
+        self.assertEqual(set(d["best"]),
+                         {"binder_id", "final_rank", "quality_score",
+                          "design_to_target_iptm", "min_interaction_pae",
+                          "bb_target_aligned_rmsd_design", "designfolding_bb_rmsd"})
+        self.assertEqual(set(d["enrichment"]), {"base_rate", "curve"})
+        self.assertEqual(set(d["enrichment"]["curve"][0]), {"k", "hit_rate", "fold"})
+
+    def test_summary_histogram_keys_match_the_run_page_charts(self):
+        """RunDetail.tsx renders exactly these four, keyed by name.
+
+        Note the underscore in designfolding_bb_rmsd: the metric is spelled
+        'designfolding-bb_rmsd' in the pipeline CSV, and the hyphen is not a
+        legal identifier, so the promoted column and this payload use an
+        underscore. A chart keyed off the CSV spelling would render nothing.
+        """
+        h = self._summary()["histograms"]
+        self.assertEqual(
+            set(h),
+            {"design_to_target_iptm", "min_interaction_pae",
+             "bb_target_aligned_rmsd_design", "designfolding_bb_rmsd"})
+        for name, hist in h.items():
+            self.assertEqual(set(hist),
+                             {"edges", "counts", "n", "underflow", "overflow"},
+                             f"histogram {name}")
+            self.assertEqual(len(hist["edges"]), len(hist["counts"]) + 1)

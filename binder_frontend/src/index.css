@@ -2971,3 +2971,172 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
 .run-config-dl .run-step-config {
   margin-top: 0;
 }
+
+/* ── Run page: verdict, charts ─────────────────────────────────────────── */
+
+.run-page .pd-breadcrumb {
+  font-size: 0.8rem;
+  color: #888;
+  margin-bottom: 0.3rem;
+}
+.run-page .crumb-sep { margin: 0 0.4rem; color: #ccc; }
+
+.run-target-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.1rem;
+  font-size: 0.8rem;
+  color: #777;
+  margin-top: 0.35rem;
+}
+
+/* Verdict: the first thing on the page. Four counts, large enough to read
+   without looking for them. */
+.run-verdict {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  background: #ebebeb;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  margin-bottom: 1rem;
+}
+.verdict-item { background: #fff; padding: 0.8rem 1rem; }
+.verdict-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+.verdict-pct { font-size: 0.8rem; font-weight: 500; color: #888; }
+.verdict-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #999;
+  margin-top: 0.2rem;
+}
+.verdict-item.v-good  .verdict-value { color: #15803d; }
+.verdict-item.v-some  .verdict-value { color: #b45309; }
+.verdict-item.v-none  .verdict-value { color: #b91c1c; }
+.verdict-item.v-plain .verdict-value { color: #333; }
+
+.verdict-line { font-size: 0.78rem; }
+.verdict-line .verdict-sep { margin: 0 0.4rem; color: #ccc; }
+.verdict-line .v-good { color: #15803d; }
+.verdict-line .v-some { color: #b45309; }
+.verdict-line .v-none { color: #b91c1c; }
+
+.run-best {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.1rem;
+  align-items: baseline;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  padding: 0.6rem 1rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.8rem;
+  color: #555;
+}
+.run-best-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #999;
+}
+
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+.chart-card {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  padding: 0.7rem 0.9rem 0.6rem;
+}
+.chart-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 0.3rem;
+}
+.chart-unit { font-weight: 400; color: #999; }
+.chart-svg { width: 100%; height: auto; display: block; }
+.chart-empty { font-size: 0.78rem; color: #999; font-style: italic; margin: 0.6rem 0; }
+
+.chart-axis   { stroke: #ddd; stroke-width: 1; }
+.chart-bar    { fill: var(--teal, #0d9488); }
+.chart-bar:hover { fill: #0f766e; }
+.chart-line   { fill: none; stroke: var(--teal, #0d9488); stroke-width: 1.5; }
+.chart-dot    { fill: var(--teal, #0d9488); }
+.chart-baseline { stroke: #b91c1c; stroke-width: 1; stroke-dasharray: 3 2; }
+.chart-mark     { stroke: #b45309; stroke-width: 1; stroke-dasharray: 3 2; }
+.chart-mark-label { font-size: 6px; fill: #b45309; }
+
+.chart-tick { font-size: 6.5px; fill: #999; }
+.chart-tick-y { text-anchor: end; }
+.chart-tick-end { text-anchor: end; }
+.chart-tick-mid { text-anchor: middle; }
+
+.chart-foot { font-size: 0.68rem; color: #999; margin-top: 0.15rem; }
+.chart-overflow { color: #b45309; }
+
+.run-footer-link { font-size: 0.82rem; margin: 1rem 0 2rem; }
+
+/* ── Protein page: run cards ───────────────────────────────────────────── */
+/* The protein page lists runs; the run page is where a run is read. */
+
+.run-card-list { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 2rem; }
+
+.run-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.1rem;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  text-decoration: none;
+  color: inherit;
+  transition: box-shadow 0.12s, transform 0.12s;
+}
+.run-card:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  transform: translateY(-1px);
+  text-decoration: none;
+  color: inherit;
+}
+.run-card-main { min-width: 0; }
+.run-card-title {
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run-card-sub { margin-top: 0.2rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.4rem; }
+.run-card-muted { font-size: 0.78rem; color: #999; }
+.run-card-right { text-align: right; flex-shrink: 0; }
+.run-card-count { display: block; font-size: 1.1rem; font-weight: 700; color: var(--teal, #0d9488); line-height: 1.1; }
+.run-card-count-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; color: #aaa; }
+
+/* Run target section with the PAE panel alongside: three panels, so let them
+   wrap rather than squeezing the structure viewer to nothing. */
+.run-target-body.has-pae { flex-wrap: wrap; height: auto; }
+.run-target-body.has-pae > * { min-width: 280px; flex: 1 1 280px; height: 340px; }
+.run-target-pae { display: flex; border-right: 1px solid #ebebeb; overflow: hidden; min-height: 0; }
+
+/* Epitope band on the PAE plot: the region a run was designed against. */
+.pae-band { position: absolute; pointer-events: none; background: rgba(180, 83, 9, 0.16); }
+.pae-band-v { top: 0; bottom: 0; }
+.pae-band-h { left: 0; right: 0; }

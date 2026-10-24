@@ -9,6 +9,12 @@ interface Props {
   highlightResidue?: number | null;
   /** Reports the scored residue under the cursor (1-based), or null on leave. */
   onHoverResidue?: (resno: number | null) => void;
+  /**
+   * Inclusive 1-based residue range to shade on both axes, e.g. the epitope a
+   * run was designed against. The band makes it readable at a glance whether
+   * that region is confidently positioned relative to the rest of the chain.
+   */
+  highlightRange?: [number, number] | null;
 }
 
 // Color scale matching AlphaFold: dark green (0 Å) → white (max Å)
@@ -45,6 +51,7 @@ export default function PaeViewer({
   paeJsonPath,
   highlightResidue = null,
   onHoverResidue,
+  highlightRange = null,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // Retained so the readout can look up a value without re-fetching. Flat
@@ -155,6 +162,21 @@ export default function PaeViewer({
   const row = hover ? hover.y : external;
   const pct = (i: number) => `${((i + 0.5) / n) * 100}%`;
 
+  // Band edges span whole residues, so they use the residue's leading edge
+  // rather than its centre.
+  const band =
+    highlightRange && n
+      ? (() => {
+          const lo = Math.max(1, Math.min(highlightRange[0], highlightRange[1]));
+          const hi = Math.min(n, Math.max(highlightRange[0], highlightRange[1]));
+          if (hi < lo) return null;
+          return {
+            start: `${((lo - 1) / n) * 100}%`,
+            size: `${((hi - lo + 1) / n) * 100}%`,
+          };
+        })()
+      : null;
+
   return (
     <div className="pae-wrap">
       <div className="cif-viewer-label">Predicted Aligned Error</div>
@@ -170,6 +192,14 @@ export default function PaeViewer({
             onMouseLeave={handleLeave}
           >
             <canvas ref={canvasRef} className="pae-canvas" />
+            {band && (
+              <>
+                <span className="pae-band pae-band-v"
+                      style={{ left: band.start, width: band.size }} />
+                <span className="pae-band pae-band-h"
+                      style={{ top: band.start, height: band.size }} />
+              </>
+            )}
             {col != null && (
               <span className="pae-crosshair pae-crosshair-v" style={{ left: pct(col) }} />
             )}
