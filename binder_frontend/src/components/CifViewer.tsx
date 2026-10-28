@@ -12,12 +12,14 @@ import { MAQualityAssessment } from "molstar/lib/extensions/model-archive/qualit
 import type { Loci } from "molstar/lib/mol-model/loci";
 import type { Location } from "molstar/lib/mol-model/location";
 import { isolateChainByLength } from "../utils/cifChain";
+import { classifyHotspotB } from "../utils/hotspotBfactor";
 import "molstar/build/viewer/molstar.css";
 
 /**
  * How to color the structure, and which legend to show:
  *  - "confidence": AlphaFold pLDDT bands (B-factor = pLDDT).
- *  - "hotspot":    binary hotspot encoding (B-factor > 0 = hotspot residue).
+ *  - "hotspot":    design constraints from the B-factor column: hotspot,
+ *                  masked (a face created by cropping), or unconstrained.
  *  - "none":       Mol* default coloring, no legend.
  */
 export type CifColoring = "confidence" | "hotspot" | "none";
@@ -60,21 +62,23 @@ const CONFIDENCE_LEGEND = [
   { color: "#FF7D45", label: "Very low (pLDDT < 50)" },
 ];
 
-// Design-target structures carry the hotspot selection in the B-factor column
-// (score * 100 for hotspot residues, 0 for everything else) rather than pLDDT,
-// so they get their own two-color theme instead of the confidence bands.
+// Design-target structures carry the design constraints in the B-factor column
+// rather than pLDDT, so they get their own theme instead of the confidence
+// bands. There are three states, not two.
 const HOTSPOT_COLOR = 0xffe119; // yellow
+const MASKED_COLOR = 0x9a9a9a; // grey
 const NON_HOTSPOT_COLOR = 0x6a3d9a; // deep purple
 const HOTSPOT_THEME_NAME = "hotspot-bfactor";
 
 const HOTSPOT_LEGEND = [
-  { color: "#FFE119", label: "Hotspot residue" },
-  { color: "#6A3D9A", label: "Non-hotspot" },
+  { color: "#FFE119", label: "Hotspot — bind here" },
+  { color: "#9A9A9A", label: "Masked — crop face" },
+  { color: "#6A3D9A", label: "Unconstrained" },
 ];
 
 const LEGENDS: Record<CifColoring, { title: string; items: typeof CONFIDENCE_LEGEND } | null> = {
   confidence: { title: "Model confidence (pLDDT)", items: CONFIDENCE_LEGEND },
-  hotspot: { title: "Hotspot Residues", items: HOTSPOT_LEGEND },
+  hotspot: { title: "Design constraints", items: HOTSPOT_LEGEND },
   none: null,
 };
 
@@ -90,8 +94,9 @@ const HOTSPOT_THEME_PROVIDER = {
     granularity: "group",
     color: (location: Location) => {
       if (StructureElement.Location.is(location)) {
-        const b = StructureProperties.atom.B_iso_or_equiv(location);
-        if (b > 0) return Color(HOTSPOT_COLOR);
+        const state = classifyHotspotB(StructureProperties.atom.B_iso_or_equiv(location));
+        if (state === "masked") return Color(MASKED_COLOR);
+        if (state === "hotspot") return Color(HOTSPOT_COLOR);
       }
       return Color(NON_HOTSPOT_COLOR);
     },
@@ -211,9 +216,9 @@ export default function CifViewer({
             if (!StructureElement.Loci.is(loci) || StructureElement.Loci.isEmpty(loci)) return;
             const loc = StructureElement.Loci.getFirstLocation(loci);
             if (!loc) return;
-            return StructureProperties.atom.B_iso_or_equiv(loc) > 0
-              ? "Hotspot residue"
-              : "Non-hotspot";
+            const state = classifyHotspotB(StructureProperties.atom.B_iso_or_equiv(loc));
+            if (state === "masked") return "Masked — face created by cropping";
+            return state === "hotspot" ? "Hotspot residue" : "Unconstrained";
           },
         });
       }
