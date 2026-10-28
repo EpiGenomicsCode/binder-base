@@ -157,7 +157,7 @@ export default function RunDetailPage() {
 
       {/* 5. The designs */}
       <div className="run-section-title">Binders</div>
-      <BindersTable runId={summary.run_id} runCifPath={run?.cif_path ?? null} />
+      <BindersTable runId={summary.run_id} />
 
       {/* 6. Provenance, collapsed */}
       {run && (

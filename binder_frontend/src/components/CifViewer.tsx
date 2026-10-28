@@ -11,6 +11,7 @@ import { Color } from "molstar/lib/mol-util/color";
 import { MAQualityAssessment } from "molstar/lib/extensions/model-archive/quality-assessment/behavior";
 import type { Loci } from "molstar/lib/mol-model/loci";
 import type { Location } from "molstar/lib/mol-model/location";
+import { isolateChainByLength } from "../utils/cifChain";
 import "molstar/build/viewer/molstar.css";
 
 /**
@@ -36,10 +37,22 @@ interface Props {
    * Omit for single-chain structures.
    */
   seqChainLength?: number | null;
+  /**
+   * Show only the chain this many residues long, discarding the rest before the
+   * file is parsed. Used to draw the binder by itself out of a target+binder
+   * complex, which is the only structure a pruned run keeps for a binder.
+   * Omit to show the file as it is.
+   */
+  isolateChainLength?: number | null;
 }
 
 // AlphaFold model-confidence (pLDDT) bands and colors.
 // https://alphafold.ebi.ac.uk — matches the "plddt-confidence" Mol* color theme.
+//
+// Designed structures carry pLDDT twice: as `_ma_qa_metric_local.metric_value`
+// on the usual 0-100 scale, and as B_iso_or_equiv on a 0-1 scale. The Mol*
+// theme reads the quality-assessment property and only falls back to B-factor
+// when none exists, so it reads the 0-100 values and these bands are correct.
 const CONFIDENCE_LEGEND = [
   { color: "#0053D6", label: "Very high (pLDDT > 90)" },
   { color: "#65CBF3", label: "Confident (90 > pLDDT > 70)" },
@@ -60,7 +73,7 @@ const HOTSPOT_LEGEND = [
 ];
 
 const LEGENDS: Record<CifColoring, { title: string; items: typeof CONFIDENCE_LEGEND } | null> = {
-  confidence: { title: "Model Confidence", items: CONFIDENCE_LEGEND },
+  confidence: { title: "Model confidence (pLDDT)", items: CONFIDENCE_LEGEND },
   hotspot: { title: "Hotspot Residues", items: HOTSPOT_LEGEND },
   none: null,
 };
@@ -120,6 +133,7 @@ export default function CifViewer({
   highlightResidue = null,
   onHoverResidue,
   seqChainLength = null,
+  isolateChainLength = null,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
@@ -152,7 +166,26 @@ export default function CifViewer({
     }).then(async (v) => {
       if (disposed) { v.dispose(); return; }
       viewerRef.current = v;
-      await v.loadStructureFromUrl(`/media/${cifPath}`, "mmcif", false);
+
+      // Isolating a chain means rewriting the file, so it has to be fetched
+      // rather than handed to Mol* as a URL. The browser serves the second
+      // viewer of the same complex from cache, so this costs no extra transfer.
+      // Any failure falls back to loading the file whole: a complex in the
+      // binder panel is wrong but still informative, an empty panel is not.
+      let loaded = false;
+      if (isolateChainLength) {
+        try {
+          const res = await fetch(`/media/${cifPath}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const text = await res.text();
+          if (disposed) return;
+          await v.loadStructureFromData(isolateChainByLength(text, isolateChainLength), "mmcif");
+          loaded = true;
+        } catch {
+          loaded = false;
+        }
+      }
+      if (!loaded) await v.loadStructureFromUrl(`/media/${cifPath}`, "mmcif", false);
       if (disposed) return;
 
       const { plugin } = v;
@@ -238,7 +271,7 @@ export default function CifViewer({
       structureRef.current = null;
       chainAsymRef.current = null;
     };
-  }, [cifPath, coloring, seqChainLength]);
+  }, [cifPath, coloring, seqChainLength, isolateChainLength]);
 
   // Highlight a residue in the 3D view when the linked sequence is hovered.
   useEffect(() => {

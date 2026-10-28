@@ -6,11 +6,10 @@ import { LinkedSequenceBlock, statusClass } from "./SequenceBlock";
 
 interface BinderModalProps {
   binder: Binder;
-  runCifPath: string | null;
   onClose: () => void;
 }
 
-function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
+function BinderModal({ binder, onClose }: BinderModalProps) {
   const [copied, setCopied] = useState(false);
   const [hoverResno, setHoverResno] = useState<number | null>(null);
 
@@ -29,7 +28,9 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
     });
   }
 
-  const hasCifs = runCifPath || binder.cif_path;
+  // Both viewers key off the binder chain's length: one to isolate it, one to
+  // decide which chain of the complex the sequence block hovers against.
+  const binderLength = binder.binder_length ?? binder.binder_sequence.length;
 
   return (
     <div className="cif-modal-overlay" onClick={onClose}>
@@ -57,41 +58,40 @@ function BinderModal({ binder, runCifPath, onClose }: BinderModalProps) {
           hoverResno={hoverResno}
           onHover={setHoverResno}
         />
-        {hasCifs ? (
+        {binder.cif_path ? (
           <div className="cif-modal-viewers">
             {/*
-              Same file RunTargetStructure shows, so it gets the same theme: the
-              run-root CIF encodes the hotspot selection in B_iso_or_equiv
-              (score*100 for selected residues, 0 elsewhere), not pLDDT.
+              Both panels read the same file -- the target+binder complex, which
+              is the only structure a pruned run keeps per binder -- and both use
+              the confidence theme, so one legend reading applies to both.
 
-              The Target+Binder complex below deliberately stays uncolored. Its
-              B-factors are per-atom confidence on a 0-1 scale, so "hotspot"
-              would paint every atom yellow and "confidence" would read the whole
-              structure as very low.
+              The run's own target structure is not shown here: the run page
+              already devotes a panel to it, and repeating it cost the binder
+              the only view where it can be seen on its own. The left panel
+              filters the complex down to the binder chain instead.
+
+              "confidence" is correct despite B_iso_or_equiv being on a 0-1
+              scale in these files: Mol* colors from _ma_qa_metric_local, which
+              carries the same pLDDT on the usual 0-100 scale, and only falls
+              back to B-factor when that category is absent.
             */}
-            {runCifPath ? (
-              <CifViewer cifPath={runCifPath} label="Target protein" coloring="hotspot" />
-            ) : (
-              <div className="cif-viewer-wrap">
-                <div className="cif-viewer-label">Target protein</div>
-                <div className="cif-viewer-placeholder">No CIF file available</div>
-              </div>
-            )}
-            {binder.cif_path ? (
-              <CifViewer
-                cifPath={binder.cif_path}
-                label="Target + Binder"
-                coloring="none"
-                highlightResidue={hoverResno}
-                onHoverResidue={setHoverResno}
-                seqChainLength={binder.binder_length ?? binder.binder_sequence.length}
-              />
-            ) : (
-              <div className="cif-viewer-wrap">
-                <div className="cif-viewer-label">Target + Binder</div>
-                <div className="cif-viewer-placeholder">No CIF file available</div>
-              </div>
-            )}
+            <CifViewer
+              cifPath={binder.cif_path}
+              label="Binder"
+              coloring="confidence"
+              highlightResidue={hoverResno}
+              onHoverResidue={setHoverResno}
+              seqChainLength={binderLength}
+              isolateChainLength={binderLength}
+            />
+            <CifViewer
+              cifPath={binder.cif_path}
+              label="Target + Binder"
+              coloring="confidence"
+              highlightResidue={hoverResno}
+              onHoverResidue={setHoverResno}
+              seqChainLength={binderLength}
+            />
           </div>
         ) : (
           <p className="cif-modal-empty">No CIF files available for this binder.</p>
@@ -163,7 +163,7 @@ const BINDER_COLUMNS: BinderColumn[] = [
 
 const DEFAULT_VISIBLE_BINDER_COLUMNS: string[] = BINDER_COLUMNS.map((c) => c.id);
 
-export default function BindersTable({ runId, runCifPath }: { runId: number; runCifPath: string | null }) {
+export default function BindersTable({ runId }: { runId: number }) {
   const [selectedBinder, setSelectedBinder] = useState<Binder | null>(null);
   const [sortKey, setSortKey] = useState<BinderSortKey>("rank");
   const [sortDir, setSortDir] = useState<BinderSortDir>("asc");
@@ -418,7 +418,6 @@ export default function BindersTable({ runId, runCifPath }: { runId: number; run
       {selectedBinder && (
         <BinderModal
           binder={selectedBinder}
-          runCifPath={runCifPath}
           onClose={() => setSelectedBinder(null)}
         />
       )}
