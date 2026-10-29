@@ -125,8 +125,16 @@ export default function usePageMeta({
   }, [path]);
 }
 
-/** Shared by the protein and run pages, which label the same thing. */
-export function geneLabel(
+/**
+ * "VEGFA (P15692)" for titles and descriptions, where the accession has to be
+ * in the text itself.
+ *
+ * Deliberately NOT called geneLabel: RunDetail already has a local
+ * `const geneLabel = p.gene_name || p.uniprot_id` -- a bare string it renders
+ * in JSX, not a function -- and importing a function under that name shadowed
+ * it into a temporal-dead-zone error that only tsc catches.
+ */
+export function geneWithAccession(
   gene: string | null | undefined,
   uniprot: string | null | undefined,
   fallback: string

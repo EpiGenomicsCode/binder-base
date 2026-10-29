@@ -7,7 +7,7 @@ import PaeViewer from "../components/PaeViewer";
 import ProteinSearchBar from "../components/ProteinSearchBar";
 import RunCard from "../components/RunCard";
 import { LinkedSequenceBlock } from "../components/SequenceBlock";
-import usePageMeta, { count, geneLabel } from "../utils/pageMeta";
+import usePageMeta, { count, geneWithAccession } from "../utils/pageMeta";
 
 function ProteinSequenceStructure({ protein }: { protein: ProteinDetail }) {
   const [copied, setCopied] = useState(false);
@@ -91,7 +91,7 @@ export default function ProteinDetailPage() {
     : 0;
   usePageMeta({
     title: protein
-      ? geneLabel(protein.gene_name, protein.uniprot_id, `Protein #${protein.id}`)
+      ? geneWithAccession(protein.gene_name, protein.uniprot_id, `Protein #${protein.id}`)
       : "Protein",
     description: protein
       ? [
