@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import ProteinSearchBar from "../components/ProteinSearchBar";
 import { getStats } from "../api/client";
+import usePageMeta, { count, DEFAULT_DESCRIPTION } from "../utils/pageMeta";
 import type { Stats } from "../types";
 
 const EXAMPLES = ["Tal1", "Lmo2", "Homo sapiens", "Notch1"];
@@ -14,6 +15,16 @@ export default function Home() {
   useEffect(() => {
     getStats().then(setStats).catch(() => {});
   }, []);
+
+  // The landing page keeps the bare site name: "Binder Base · Binder Base"
+  // would be the obvious thing to get wrong here.
+  usePageMeta({
+    title: null,
+    description: stats
+      ? `${DEFAULT_DESCRIPTION} ${count(stats.binder_count)} binders across ` +
+        `${count(stats.run_count)} design runs against ${count(stats.protein_count)} proteins.`
+      : DEFAULT_DESCRIPTION,
+  });
 
   function handleSubmit(q: string) {
     navigate(q ? `/proteins?q=${encodeURIComponent(q)}` : "/proteins");

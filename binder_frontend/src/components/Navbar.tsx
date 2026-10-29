@@ -60,6 +60,7 @@ export default function Navbar() {
           )}
           <Link to="/" className="navbar-link" onClick={() => setMenuOpen(false)}>Home</Link>
           <Link to="/proteins" className="navbar-link" onClick={() => setMenuOpen(false)}>Browse</Link>
+          <Link to="/runs" className="navbar-link" onClick={() => setMenuOpen(false)}>Runs</Link>
           <Link to="/structure-prep" className="navbar-link" onClick={() => setMenuOpen(false)}>Structure Prep</Link>
           <Link to="/about" className="navbar-link" onClick={() => setMenuOpen(false)}>About</Link>
           <a

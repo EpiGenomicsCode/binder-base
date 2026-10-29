@@ -7,6 +7,7 @@ import PaeViewer from "../components/PaeViewer";
 import ProteinSearchBar from "../components/ProteinSearchBar";
 import RunCard from "../components/RunCard";
 import { LinkedSequenceBlock } from "../components/SequenceBlock";
+import usePageMeta, { count, geneLabel } from "../utils/pageMeta";
 
 function ProteinSequenceStructure({ protein }: { protein: ProteinDetail }) {
   const [copied, setCopied] = useState(false);
@@ -81,6 +82,29 @@ export default function ProteinDetailPage() {
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [id]);
+
+  // Above the early returns below, including the <Navigate>: a hook that some
+  // renders reach and others do not changes the hook count between renders,
+  // which React treats as an error rather than a missing title.
+  const designs = protein
+    ? protein.runs.reduce((sum, r) => sum + r.binder_count, 0)
+    : 0;
+  usePageMeta({
+    title: protein
+      ? geneLabel(protein.gene_name, protein.uniprot_id, `Protein #${protein.id}`)
+      : "Protein",
+    description: protein
+      ? [
+          protein.protein_name ?? protein.gene_name ?? protein.uniprot_id ?? "Protein",
+          protein.organism ? ` — ${protein.organism}` : "",
+          protein.length ? `, ${count(protein.length)} aa` : "",
+          `. ${count(protein.runs.length)} binder design run`,
+          protein.runs.length === 1 ? "" : "s",
+          designs ? `, ${count(designs)} designs` : "",
+          " in Binder Base.",
+        ].join("")
+      : null,
+  });
 
   // Runs used to be panels here, addressed as /proteins/:id?run=<id>. They have
   // their own page now, so keep those links working rather than silently

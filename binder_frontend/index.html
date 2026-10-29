@@ -5,6 +5,42 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Binder Base</title>
+
+    <!--
+      SITE-LEVEL FALLBACKS, not per-route metadata.
+
+      nginx serves this file for every route, so these are what a crawler or a
+      link unfurler reads for /runs/42 as much as for /. usePageMeta rewrites
+      the title, description and canonical once React runs, which fixes the
+      browser tab and the bookmark -- but Slack, Twitter/X, LinkedIn, Discord
+      and Zotero parse the HTML without executing JavaScript and never see it.
+
+      So these stay deliberately generic: anything target-specific here would be
+      wrong on every page but one. Per-route og:/twitter: tags need the HTML
+      routes rendered server-side; until then a shared, accurate description
+      beats a specific, usually-false one.
+
+      No og:image yet: the only candidate asset is header.webp, and WebP is not
+      rendered reliably by Twitter/X or LinkedIn. A PNG or JPEG card at 1.91:1
+      is what that needs.
+    -->
+    <meta
+      name="description"
+      content="An open database of computational protein binder designs, with the structures, scores and provenance for every design."
+    />
+    <meta property="og:site_name" content="Binder Base" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Binder Base" />
+    <meta
+      property="og:description"
+      content="An open database of computational protein binder designs, with the structures, scores and provenance for every design."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Binder Base" />
+    <meta
+      name="twitter:description"
+      content="An open database of computational protein binder designs, with the structures, scores and provenance for every design."
+    />
   </head>
   <body>
     <div id="root"></div>

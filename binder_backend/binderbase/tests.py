@@ -10,6 +10,8 @@ Each test here corresponds to a failure that actually occurred during BinderBase
 integration, not to a hypothetical. The names say which.
 """
 import csv
+import io
+import json
 import os
 import shutil
 import tempfile
@@ -493,3 +495,355 @@ class RunSummaryTestCase(TestCase):
                              {"edges", "counts", "n", "underflow", "overflow"},
                              f"histogram {name}")
             self.assertEqual(len(hist["edges"]), len(hist["counts"]) + 1)
+
+
+class RunIndexTestCase(TestCase):
+    """GET /api/runs -- the leaderboard that makes a campaign comparable.
+
+    Two runs with deliberately different shapes: one where the designs placed,
+    one where none did. A single-run fixture cannot catch the aggregate leaking
+    across the GROUP BY, which is the mistake this endpoint is most exposed to.
+    """
+
+    def setUp(self):
+        self.good_p = Protein.objects.create(
+            uniprot_id="P15692", gene_name="VEGFA", sequence="MKV", length=3)
+        self.bad_p = Protein.objects.create(
+            uniprot_id="P53396", gene_name="ACLY", sequence="MKV", length=3)
+
+        # 10 designs, 4 placed, 6 monomer-consistent, 2 passed.
+        self.good = BinderRun.objects.create(
+            protein=self.good_p, algorithm="BlitzGen 1.0.0",
+            run_dir="runs/P15692-VEGFA_HPA069116-20261029",
+            metadata={"Hotspot residues": "239..258",
+                      "Binding patch residues": "20"})
+        for i in range(1, 11):
+            Binder.objects.create(
+                run=self.good, binder_sequence="A" * 20, final_rank=i,
+                design_to_target_iptm=0.90 - i * 0.01,
+                bb_target_aligned_rmsd_design=(1.0 if i <= 4 else 20.0),
+                designfolding_bb_rmsd=(0.5 if i <= 6 else 9.0),
+                pass_filters=(i <= 2))
+
+        # 5 designs, none placed, none passed. No patch in metadata: this is a
+        # run from before select_patch.py, declaring the whole span.
+        self.bad = BinderRun.objects.create(
+            protein=self.bad_p, algorithm="BlitzGen 1.0.0",
+            run_dir="runs/P53396-ACLY_HPA022953-20261021",
+            metadata={"Hotspot residues": "764-861"})
+        for i in range(1, 6):
+            Binder.objects.create(
+                run=self.bad, binder_sequence="A" * 20, final_rank=i,
+                design_to_target_iptm=0.3,
+                bb_target_aligned_rmsd_design=30.0,
+                designfolding_bb_rmsd=12.0,
+                pass_filters=False)
+
+    def _index(self, **params):
+        resp = Client().get("/api/runs", params)
+        self.assertEqual(resp.status_code, 200)
+        d = resp.json()
+        return d, {r["id"]: r for r in d["items"]}
+
+    def test_counts_are_per_run_not_pooled(self):
+        """The failure this endpoint invites: one run's binders counted into
+        another's row, or every row showing the global total."""
+        d, by_id = self._index()
+        self.assertEqual(d["total"], 2)
+        self.assertEqual(by_id[self.good.id]["designs"], 10)
+        self.assertEqual(by_id[self.bad.id]["designs"], 5)
+        self.assertEqual(by_id[self.good.id]["placement_hits"], 4)
+        self.assertEqual(by_id[self.bad.id]["placement_hits"], 0)
+        self.assertEqual(by_id[self.good.id]["monomer_consistent"], 6)
+        self.assertEqual(by_id[self.good.id]["passed_filters"], 2)
+
+    def test_rates_divide_by_the_run_s_own_designs(self):
+        _, by_id = self._index()
+        g = by_id[self.good.id]
+        self.assertAlmostEqual(g["placement_rate"], 0.4)
+        self.assertAlmostEqual(g["monomer_rate"], 0.6)
+        self.assertAlmostEqual(g["pass_rate"], 0.2)
+        self.assertAlmostEqual(by_id[self.bad.id]["placement_rate"], 0.0)
+
+    def test_best_placement_is_a_minimum_not_a_maximum(self):
+        """Placement is an RMSD. Taking Max here would rank every run by its
+        worst design while calling it the best."""
+        _, by_id = self._index()
+        self.assertAlmostEqual(by_id[self.good.id]["best_placement"], 1.0)
+        self.assertAlmostEqual(by_id[self.good.id]["best_iptm"], 0.89)
+
+    def test_thresholds_are_query_parameters(self):
+        d, by_id = self._index(placement_threshold=25.0)
+        self.assertEqual(by_id[self.good.id]["placement_hits"], 10)
+        self.assertEqual(by_id[self.bad.id]["placement_hits"], 0)
+        self.assertEqual(d["placement_threshold"], 25.0)
+
+    def test_epitope_comes_from_metadata_in_both_formats(self):
+        _, by_id = self._index()
+        self.assertEqual(by_id[self.good.id]["epitope"], "239..258")
+        self.assertEqual(by_id[self.good.id]["epitope_residues"], 20)
+        # Pre-patch run: a span, and no residue count to report.
+        self.assertEqual(by_id[self.bad.id]["epitope"], "764-861")
+        self.assertIsNone(by_id[self.bad.id]["epitope_residues"])
+
+    def test_run_with_no_binders_does_not_divide_by_zero(self):
+        BinderRun.objects.create(
+            protein=self.bad_p, run_dir="runs/empty-20261029", metadata={})
+        d, _ = self._index()
+        empty = next(r for r in d["items"] if r["designs"] == 0)
+        self.assertEqual(empty["placement_rate"], 0.0)
+        self.assertIsNone(empty["best_placement"])
+
+    def test_run_without_metadata_does_not_error(self):
+        BinderRun.objects.create(
+            protein=self.bad_p, run_dir="runs/nometa-20261029", metadata=None)
+        d, _ = self._index()
+        self.assertEqual(d["total"], 3)
+
+    def test_index_payload_shape_is_the_frontend_contract(self):
+        """RunListRow in binder_frontend/src/types/index.ts is written against
+        these keys. A rename arrives on the client as undefined, so the table
+        renders blank columns rather than failing -- pin it here instead."""
+        d, _ = self._index()
+        self.assertEqual(set(d),
+                         {"items", "total", "placement_threshold", "monomer_threshold"})
+        self.assertEqual(
+            set(d["items"][0]),
+            {"id", "protein_id", "uniprot_id", "gene_name", "algorithm",
+             "run_datetime", "epitope", "epitope_residues", "designs",
+             "placement_hits", "monomer_consistent", "passed_filters",
+             "placement_rate", "monomer_rate", "pass_rate",
+             "best_iptm", "best_placement"})
+
+    def test_index_matches_the_summary_for_the_same_run(self):
+        """Two endpoints computing the same four counts by different routes --
+        one grouped annotation, one per-run aggregate. They must not drift."""
+        _, by_id = self._index()
+        row = by_id[self.good.id]
+        s = Client().get(f"/api/runs/{self.good.id}/summary").json()
+        self.assertEqual(row["designs"], s["counts"]["designs"])
+        self.assertEqual(row["placement_hits"], s["counts"]["placement_hits"])
+        self.assertEqual(row["monomer_consistent"], s["counts"]["monomer_consistent"])
+        self.assertEqual(row["passed_filters"], s["counts"]["passed_filters"])
+        self.assertAlmostEqual(row["placement_rate"], s["rates"]["placement"])
+
+
+class ExportTestCase(TestCase):
+    """CSV / FASTA / meta.json downloads.
+
+    All of these stream, so the body arrives as `streaming_content` and
+    `response.content` raises -- reading them through a helper keeps that from
+    being rediscovered per test.
+    """
+
+    def setUp(self):
+        self.protein = Protein.objects.create(
+            uniprot_id="P15692", gene_name="VEGFA", sequence="MKV", length=3)
+        self.run = BinderRun.objects.create(
+            protein=self.protein, algorithm="BlitzGen 1.0.0",
+            run_dir="runs/P15692-VEGFA_HPA069116-20261029",
+            metadata={"Hotspot residues": "239..258",
+                      "Binding patch residues": "20",
+                      "Container": "blitzgen.sif"})
+        for i in range(1, 6):
+            Binder.objects.create(
+                run=self.run,
+                binder_sequence="ACDEFGHIKL" * (6 + i),   # 60-110 aa, > one wrap
+                binder_length=10 * (6 + i),
+                final_rank=i,
+                status="success" if i <= 2 else "failure",
+                quality_score=1.0 - i * 0.1,
+                design_to_target_iptm=0.9 - i * 0.05,
+                min_interaction_pae=2.0 + i,
+                bb_target_aligned_rmsd_design=(1.0 if i <= 2 else 20.0),
+                designfolding_bb_rmsd=0.8,
+                complex_plddt=85.0,
+                pass_filters=(i <= 2),
+                metrics={"id": 1, "file_name": "x.cif", "extra_metric": i * 10},
+            )
+
+    def _body(self, url, **params):
+        resp = Client().get(url, params)
+        self.assertEqual(resp.status_code, 200)
+        return resp, b"".join(resp.streaming_content).decode()
+
+    def _csv(self, url, **params):
+        resp, text = self._body(url, **params)
+        return resp, list(csv.reader(io.StringIO(text)))
+
+    # -- binders.csv ---------------------------------------------------------
+
+    def test_csv_exports_every_binder_not_one_page(self):
+        """The default listing pages at 20. An export that inherited that would
+        be the thing it exists to replace."""
+        _, rows = self._csv(f"/api/runs/{self.run.id}/binders.csv")
+        self.assertEqual(len(rows), 6)          # header + 5
+        self.assertEqual(rows[0][0], "binder_id")
+
+    def test_csv_header_is_the_stable_contract(self):
+        _, rows = self._csv(f"/api/runs/{self.run.id}/binders.csv")
+        self.assertEqual(rows[0], [
+            "binder_id", "run_id", "uniprot_id", "gene_name", "final_rank",
+            "status", "pass_filters", "binder_length", "binder_sequence",
+            "quality_score", "design_to_target_iptm", "min_interaction_pae",
+            "bb_target_aligned_rmsd_design", "bb_rmsd_design",
+            "designfolding_bb_rmsd", "complex_plddt", "design_ptm",
+            "failure_reason", "cif_path"])
+
+    def test_csv_carries_run_and_protein_identity_on_every_row(self):
+        """So concatenating a hundred run exports stays self-describing."""
+        _, rows = self._csv(f"/api/runs/{self.run.id}/binders.csv")
+        for row in rows[1:]:
+            self.assertEqual(row[1], str(self.run.id))
+            self.assertEqual(row[2], "P15692")
+            self.assertEqual(row[3], "VEGFA")
+
+    def test_csv_respects_the_status_filter(self):
+        _, rows = self._csv(f"/api/runs/{self.run.id}/binders.csv", status="success")
+        self.assertEqual(len(rows), 3)
+        self.assertTrue(all(r[5] == "success" for r in rows[1:]))
+
+    def test_csv_respects_the_sort_the_table_was_showing(self):
+        """A download that came back in a different order than the table the
+        user clicked it from is a bug, not a detail."""
+        _, rows = self._csv(f"/api/runs/{self.run.id}/binders.csv",
+                            sort="rank", sort_dir="desc")
+        self.assertEqual([r[4] for r in rows[1:]], ["5", "4", "3", "2", "1"])
+
+    def test_csv_quotes_a_field_containing_a_comma(self):
+        """csv.writer rather than ','.join: a failure reason is free text."""
+        Binder.objects.create(
+            run=self.run, binder_sequence="AAA", final_rank=99,
+            failure_reason='clash, severe; "overlap"')
+        _, rows = self._csv(f"/api/runs/{self.run.id}/binders.csv")
+        row = next(r for r in rows[1:] if r[4] == "99")
+        self.assertEqual(row[17], 'clash, severe; "overlap"')
+
+    def test_csv_promoted_columns_omit_the_metrics_json(self):
+        _, rows = self._csv(f"/api/runs/{self.run.id}/binders.csv")
+        self.assertNotIn("extra_metric", rows[0])
+
+    def test_csv_metrics_full_appends_the_pipeline_columns(self):
+        _, rows = self._csv(f"/api/runs/{self.run.id}/binders.csv", metrics="full")
+        self.assertIn("extra_metric", rows[0])
+        # id and file_name are hidden everywhere else; the export must not
+        # reintroduce them.
+        self.assertNotIn("file_name", rows[0])
+        col = rows[0].index("extra_metric")
+        self.assertEqual(rows[1][col], "10")
+
+    def test_csv_filename_names_the_target(self):
+        resp, _ = self._csv(f"/api/runs/{self.run.id}/binders.csv")
+        self.assertEqual(
+            resp["Content-Disposition"],
+            f'attachment; filename="P15692-VEGFA-run{self.run.id}-binders.csv"')
+
+    def test_csv_unknown_run_is_404(self):
+        self.assertEqual(
+            Client().get("/api/runs/999999/binders.csv").status_code, 404)
+
+    # -- binders.fasta -------------------------------------------------------
+
+    def test_fasta_has_one_record_per_binder(self):
+        _, text = self._body(f"/api/runs/{self.run.id}/binders.fasta")
+        self.assertEqual(text.count(">"), 5)
+
+    def test_fasta_defline_carries_the_scoring_metrics(self):
+        """A bare sequence file loses the only thing telling two designs
+        apart, and the defline is all that survives most alignment tools."""
+        _, text = self._body(f"/api/runs/{self.run.id}/binders.fasta")
+        first = text.splitlines()[0]
+        self.assertTrue(first.startswith(">binder"))
+        self.assertIn(f"run={self.run.id}", first)
+        self.assertIn("uniprot=P15692", first)
+        self.assertIn("gene=VEGFA", first)
+        self.assertIn("rank=1", first)
+        self.assertIn("iptm=0.85", first)
+        self.assertIn("pass=yes", first)
+
+    def test_fasta_identifier_is_unique_per_binder(self):
+        _, text = self._body(f"/api/runs/{self.run.id}/binders.fasta")
+        ids = [ln.split()[0] for ln in text.splitlines() if ln.startswith(">")]
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_fasta_wraps_sequences(self):
+        _, text = self._body(f"/api/runs/{self.run.id}/binders.fasta")
+        seq_lines = [ln for ln in text.splitlines() if ln and not ln.startswith(">")]
+        self.assertTrue(seq_lines)
+        self.assertTrue(all(len(ln) <= 60 for ln in seq_lines))
+
+    def test_fasta_sequences_round_trip_unchanged(self):
+        """Wrapping must not drop or duplicate residues."""
+        _, text = self._body(f"/api/runs/{self.run.id}/binders.fasta")
+        joined, current = {}, None
+        for ln in text.splitlines():
+            if ln.startswith(">"):
+                current = ln.split("|")[0][7:]
+                joined[current] = ""
+            elif current:
+                joined[current] += ln
+        for b in self.run.binder_set.all():
+            self.assertEqual(joined[str(b.id)], b.binder_sequence)
+
+    def test_fasta_limit_takes_the_leading_n_in_sort_order(self):
+        _, text = self._body(f"/api/runs/{self.run.id}/binders.fasta", limit=2)
+        self.assertEqual(text.count(">"), 2)
+        self.assertIn("rank=1", text)
+        self.assertNotIn("rank=3", text)
+
+    def test_fasta_limit_names_itself_in_the_filename(self):
+        resp, _ = self._body(f"/api/runs/{self.run.id}/binders.fasta", limit=2)
+        self.assertIn("top2.fasta", resp["Content-Disposition"])
+
+    # -- meta.json -----------------------------------------------------------
+
+    def test_meta_json_returns_the_provenance_record(self):
+        resp = Client().get(f"/api/runs/{self.run.id}/meta.json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(json.loads(resp.content)["Container"], "blitzgen.sif")
+        self.assertIn("attachment", resp["Content-Disposition"])
+
+    def test_meta_json_without_metadata_is_an_empty_object(self):
+        bare = BinderRun.objects.create(
+            protein=self.protein, run_dir="runs/bare-20261029", metadata=None)
+        resp = Client().get(f"/api/runs/{bare.id}/meta.json")
+        self.assertEqual(json.loads(resp.content), {})
+
+    # -- runs.csv ------------------------------------------------------------
+
+    def test_runs_csv_has_one_row_per_run(self):
+        BinderRun.objects.create(
+            protein=self.protein, run_dir="runs/second-20261029", metadata={})
+        _, rows = self._csv("/api/runs.csv")
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0][0], "run_id")
+
+    def test_runs_csv_matches_the_index_endpoint(self):
+        """Same leaderboard, two renderings. They must not drift."""
+        _, rows = self._csv("/api/runs.csv")
+        index = Client().get("/api/runs").json()["items"][0]
+        row = dict(zip(rows[0], rows[1]))
+        self.assertEqual(int(row["designs"]), index["designs"])
+        self.assertEqual(int(row["placement_hits"]), index["placement_hits"])
+        self.assertAlmostEqual(float(row["placement_rate"]), index["placement_rate"])
+        self.assertEqual(row["epitope"], index["epitope"])
+
+    def test_runs_csv_thresholds_reach_both_the_rates_and_the_filename(self):
+        resp, rows = self._csv("/api/runs.csv", placement_threshold=25.0)
+        row = dict(zip(rows[0], rows[1]))
+        self.assertEqual(int(row["placement_hits"]), 5)
+        self.assertIn("placement25.0A", resp["Content-Disposition"])
+
+    # -- header safety -------------------------------------------------------
+
+    def test_filename_cannot_inject_a_response_header(self):
+        """gene_name is free text from whatever wrote the run, and it lands in
+        Content-Disposition. A newline there is response splitting."""
+        self.protein.gene_name = 'ev"il\r\nX-Injected: 1'
+        self.protein.save()
+        resp, _ = self._csv(f"/api/runs/{self.run.id}/binders.csv")
+        disposition = resp["Content-Disposition"]
+        self.assertNotIn("\n", disposition)
+        self.assertNotIn("\r", disposition)
+        self.assertNotIn('ev"il', disposition)
+        self.assertIsNone(resp.get("X-Injected"))

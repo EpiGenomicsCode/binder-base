@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { getProteins } from "../api/client";
 import type { Protein } from "../types";
 import ProteinSearchBar from "../components/ProteinSearchBar";
+import usePageMeta, { count } from "../utils/pageMeta";
 
 type SortKey = "uniprot" | "name" | "gene" | "organism" | "length";
 type SortDir = "asc" | "desc";
@@ -125,6 +126,19 @@ export default function ProteinList() {
   }, [proteins, query, selectedOrganisms, minLength, maxLength, sortKey, sortDir]);
 
   const hasFilters = selectedOrganisms.size > 0 || minLength !== "" || maxLength !== "";
+
+  // The search term is in the title so a tab full of searches stays legible,
+  // but not in the canonical: every permutation of ?q= is this one page.
+  const trimmedQuery = query.trim();
+  usePageMeta({
+    title: trimmedQuery ? `"${trimmedQuery}" — protein search` : "Proteins",
+    description: trimmedQuery
+      ? `${count(filtered.length)} protein${filtered.length === 1 ? "" : "s"} ` +
+        `matching "${trimmedQuery}" in Binder Base.`
+      : `Browse ${count(proteins.length)} target proteins with de novo binder ` +
+        `design runs. Search by UniProt ID, gene, organism or protein name.`,
+    canonicalPath: "/proteins",
+  });
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);

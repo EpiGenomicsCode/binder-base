@@ -10,11 +10,15 @@ interface Props {
   /** Reports the scored residue under the cursor (1-based), or null on leave. */
   onHoverResidue?: (resno: number | null) => void;
   /**
-   * Inclusive 1-based residue range to shade on both axes, e.g. the epitope a
-   * run was designed against. The band makes it readable at a glance whether
+   * Inclusive 1-based residue ranges to shade on both axes, e.g. the epitope a
+   * run was designed against. The bands make it readable at a glance whether
    * that region is confidently positioned relative to the rest of the chain.
+   *
+   * A list rather than one range because a binding patch is a set of segments
+   * -- shading lo..hi across the gaps would claim residues the design never
+   * targeted.
    */
-  highlightRange?: [number, number] | null;
+  highlightRanges?: [number, number][];
 }
 
 // Color scale matching AlphaFold: dark green (0 Å) → white (max Å)
@@ -51,7 +55,7 @@ export default function PaeViewer({
   paeJsonPath,
   highlightResidue = null,
   onHoverResidue,
-  highlightRange = null,
+  highlightRanges = [],
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // Retained so the readout can look up a value without re-fetching. Flat
@@ -164,18 +168,20 @@ export default function PaeViewer({
 
   // Band edges span whole residues, so they use the residue's leading edge
   // rather than its centre.
-  const band =
-    highlightRange && n
-      ? (() => {
-          const lo = Math.max(1, Math.min(highlightRange[0], highlightRange[1]));
-          const hi = Math.min(n, Math.max(highlightRange[0], highlightRange[1]));
+  const bands = !n
+    ? []
+    : highlightRanges
+        .map(([a, b]) => {
+          const lo = Math.max(1, Math.min(a, b));
+          const hi = Math.min(n, Math.max(a, b));
           if (hi < lo) return null;
           return {
+            key: `${lo}-${hi}`,
             start: `${((lo - 1) / n) * 100}%`,
             size: `${((hi - lo + 1) / n) * 100}%`,
           };
-        })()
-      : null;
+        })
+        .filter((b): b is { key: string; start: string; size: string } => b !== null);
 
   return (
     <div className="pae-wrap">
@@ -192,14 +198,14 @@ export default function PaeViewer({
             onMouseLeave={handleLeave}
           >
             <canvas ref={canvasRef} className="pae-canvas" />
-            {band && (
-              <>
-                <span className="pae-band pae-band-v"
-                      style={{ left: band.start, width: band.size }} />
-                <span className="pae-band pae-band-h"
-                      style={{ top: band.start, height: band.size }} />
-              </>
-            )}
+            {bands.map((band) => (
+              <span key={`v${band.key}`} className="pae-band pae-band-v"
+                    style={{ left: band.start, width: band.size }} />
+            ))}
+            {bands.map((band) => (
+              <span key={`h${band.key}`} className="pae-band pae-band-h"
+                    style={{ top: band.start, height: band.size }} />
+            ))}
             {col != null && (
               <span className="pae-crosshair pae-crosshair-v" style={{ left: pct(col) }} />
             )}

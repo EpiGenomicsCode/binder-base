@@ -2974,6 +2974,31 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
 
 /* ── Run page: verdict, charts ─────────────────────────────────────────── */
 
+/* The run page reuses .pd-header, which is a two-column flex ROW built for
+   ProteinDetail's left/right split -- and it puts three block children
+   (breadcrumb, title, target meta) directly inside it. As a flex row those lay
+   out side by side instead of stacking, and the padding they need lives on
+   .pd-header-left, which this page does not use, so they also sit flush
+   against the card edge. Both have to be undone here. */
+.run-page .pd-header {
+  display: block;
+  padding: 1.25rem 1.5rem;
+}
+
+/* Undefined until now, so the h1 fell back to the UA default 2em and the
+   accession rendered at the same size and weight as the gene name. */
+.pd-title {
+  font-size: 1.25rem;
+  margin: 0;
+}
+.pd-uniprot {
+  font-family: monospace;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #888;
+  margin-left: 0.45rem;
+}
+
 .run-page .pd-breadcrumb {
   font-size: 0.8rem;
   color: #888;
@@ -3140,3 +3165,208 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
 .pae-band { position: absolute; pointer-events: none; background: rgba(180, 83, 9, 0.16); }
 .pae-band-v { top: 0; bottom: 0; }
 .pae-band-h { left: 0; right: 0; }
+
+/* ── Runs index ────────────────────────────────────────────────────────────
+   The leaderboard at /runs. Shares the table, pagination and tone classes
+   with the binder table and the run verdict, so a run reads the same on both
+   pages; everything below is what the leaderboard adds. */
+
+.runs-page .list-header { gap: 1rem; }
+
+.run-search-form { flex: 1; max-width: 340px; }
+.run-search-form .navbar-search-input { width: 100%; }
+
+/* Campaign totals. Pooled over the filtered rows, so the strip answers "did
+   the campaign work" rather than "did this run work". */
+.runs-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  background: #ebebeb;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  margin-bottom: 0.9rem;
+}
+.runs-total-item {
+  background: #fff;
+  padding: 0.8rem 1rem;
+  display: flex;
+  flex-direction: column;
+}
+.runs-total-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #333;
+}
+.runs-total-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #999;
+  margin-top: 0.2rem;
+}
+
+.runs-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.6rem;
+  flex-wrap: wrap;
+}
+.runs-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  color: #555;
+  cursor: pointer;
+}
+.runs-toggle input { cursor: pointer; }
+.runs-filter-count { font-size: 0.8rem; color: #888; }
+
+/* The header cell is a control, so the button -- not the th -- carries the
+   padding, and the whole cell stays clickable while becoming focusable. */
+.runs-table .th-sortable { padding: 0; }
+.runs-table .th-sort-btn {
+  display: block;
+  width: 100%;
+  padding: 0.6rem 0.9rem;
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.runs-table .th-sort-btn:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: -2px;
+}
+.runs-table .th-num .th-sort-btn { text-align: right; }
+
+.runs-table td { vertical-align: middle; }
+.runs-table .td-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Rate above, raw count beneath: a 50% rate over 2 designs must not read like
+   a 50% rate over 1000. */
+.runs-sub {
+  display: block;
+  font-size: 0.72rem;
+  color: #999;
+  font-weight: 400;
+}
+
+.runs-gene-link { font-weight: 600; }
+.runs-uniprot { font-family: monospace; font-size: 0.82rem; }
+
+.runs-epitope {
+  font-family: monospace;
+  font-size: 0.78rem;
+  color: #555;
+}
+/* The clamp lives on an inner block, not the td: max-width on a table-cell in
+   auto layout is advisory, so the cell would grow to fit a 50-character patch
+   instead of ellipsing it. */
+.runs-epitope-range {
+  display: block;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.runs-epitope-n {
+  display: block;
+  font-family: inherit;
+  font-size: 0.72rem;
+  color: #999;
+}
+
+.runs-date { font-size: 0.8rem; color: #777; white-space: nowrap; }
+
+/* The verdict bands, unscoped from .verdict-item so the table and the totals
+   strip can use them directly. */
+.runs-table .v-good,  .runs-total-value.v-good  { color: #15803d; font-weight: 600; }
+.runs-table .v-some,  .runs-total-value.v-some  { color: #b45309; font-weight: 600; }
+.runs-table .v-none,  .runs-total-value.v-none  { color: #b91c1c; font-weight: 600; }
+
+@media (max-width: 767px) {
+  .runs-table { min-width: 820px; }
+  .run-search-form { max-width: none; }
+}
+
+/* ── Export menu ───────────────────────────────────────────────────────────
+   Matches the Columns popover it sits beside in the binder filter bar. */
+
+.export-menu { position: relative; }
+
+.export-menu-btn {
+  padding: 0.3rem 0.85rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.82rem;
+  color: #333;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s;
+}
+.export-menu-btn:hover:not(:disabled) {
+  background: #f5f5f5;
+  border-color: #9ca3af;
+}
+.export-menu-btn:disabled {
+  color: #aaa;
+  cursor: not-allowed;
+}
+.export-menu-btn:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+}
+
+.export-menu-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 10;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  padding: 0.3rem 0.25rem;
+  min-width: 250px;
+}
+
+.export-menu-item {
+  display: block;
+  padding: 0.4rem 0.65rem;
+  border-radius: 4px;
+  color: #333;
+  text-decoration: none;
+}
+.export-menu-item:hover { background: #f5f5f5; text-decoration: none; }
+.export-menu-item:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: -2px;
+}
+
+.export-menu-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.export-menu-hint {
+  display: block;
+  font-size: 0.74rem;
+  color: #888;
+  margin-top: 0.05rem;
+}

@@ -44,6 +44,39 @@ export interface BinderRun {
   binder_count: number;
 }
 
+// --- runs index (GET /api/runs) --------------------------------------------
+// One row per run, with the four counts already aggregated server-side. Keys
+// are pinned by RunIndexTestCase.test_index_payload_shape_is_the_frontend_contract.
+
+export interface RunListRow {
+  id: number;
+  protein_id: number;
+  uniprot_id: string | null;
+  gene_name: string | null;
+  algorithm: string | null;
+  run_datetime: string | null;
+  epitope: string | null;
+  /** Size of the declared binding patch; null for runs predating select_patch. */
+  epitope_residues: number | null;
+  designs: number;
+  placement_hits: number;
+  monomer_consistent: number;
+  passed_filters: number;
+  placement_rate: number;
+  monomer_rate: number;
+  pass_rate: number;
+  best_iptm: number | null;
+  /** An RMSD, so lower is better. */
+  best_placement: number | null;
+}
+
+export interface RunIndex {
+  items: RunListRow[];
+  total: number;
+  placement_threshold: number;
+  monomer_threshold: number;
+}
+
 /** One page of a run's binders, plus the metric columns available for the run. */
 export interface BinderPage {
   items: Binder[];
