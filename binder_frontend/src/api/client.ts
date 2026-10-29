@@ -1,4 +1,6 @@
-import type { BinderPage, Protein, ProteinDetail, RunSummary, Stats } from "../types";
+import type {
+  BinderPage, Protein, ProteinDetail, RunIndex, RunSummary, Stats,
+} from "../types";
 
 async function apiFetch<T>(path: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(path, { signal });
@@ -14,6 +16,19 @@ export const getProteins = (): Promise<Protein[]> =>
 
 export const getProtein = (id: number, signal?: AbortSignal): Promise<ProteinDetail> =>
   apiFetch<ProteinDetail>(`/api/proteins/${id}`, signal);
+
+/** Every run with its aggregates, for the runs index. Unpaged by design --
+ *  see the comment on the endpoint. Thresholds default to 2 A server-side. */
+export const getRuns = (
+  opts?: { placement?: number; monomer?: number },
+  signal?: AbortSignal
+): Promise<RunIndex> => {
+  const params = new URLSearchParams();
+  if (opts?.placement != null) params.set("placement_threshold", String(opts.placement));
+  if (opts?.monomer != null) params.set("monomer_threshold", String(opts.monomer));
+  const qs = params.toString();
+  return apiFetch<RunIndex>(`/api/runs${qs ? `?${qs}` : ""}`, signal);
+};
 
 export interface BinderQuery {
   page: number;

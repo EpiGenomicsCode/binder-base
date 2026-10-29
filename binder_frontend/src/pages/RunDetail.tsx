@@ -7,6 +7,7 @@ import RunTargetStructure from "../components/RunTargetStructure";
 import RunVerdict from "../components/RunVerdict";
 import { EnrichmentChart, HistogramChart } from "../components/RunCharts";
 import { RunMetadata, RunStepsList, configSummary } from "../components/RunConfig";
+import usePageMeta, { count, geneLabel } from "../utils/pageMeta";
 
 /**
  * A run's own page.
@@ -73,6 +74,33 @@ export default function RunDetailPage() {
 
     return () => ac.abort();
   }, [runId]);
+
+  // Before the early returns, so the hook count does not change with load state.
+  // This is the page most likely to be cited or pasted into a thread, so the
+  // description carries the three things that identify a run: what it targeted,
+  // where on the target, and whether the designs landed there.
+  usePageMeta({
+    title: summary
+      ? `${geneLabel(summary.protein.gene_name, summary.protein.uniprot_id,
+                     `Protein #${summary.protein.id}`)} design run #${summary.run_id}`
+      : "Design run",
+    description: summary
+      ? [
+          `${count(summary.counts.designs)} de novo binders designed against `,
+          geneLabel(summary.protein.gene_name, summary.protein.uniprot_id, "target"),
+          summary.target.epitope ? ` epitope ${summary.target.epitope}` : "",
+          `. ${count(summary.counts.placement_hits)} placed under `,
+          `${summary.rates.placement_threshold} Å `,
+          `(${(summary.rates.placement * 100).toFixed(1)}%), `,
+          `${count(summary.counts.passed_filters)} passed filters.`,
+          // "BlitzGen 1.0.0 (BoltzGen design + Blitz K16 folding)" is 51 chars
+          // of which the parenthetical is the half a search result would drop
+          // anyway. Keeping the version alone holds the whole description
+          // inside the ~155 characters Google renders.
+          run?.algorithm ? ` ${run.algorithm.split(" (")[0]}.` : "",
+        ].join("")
+      : null,
+  });
 
   if (loading) return <div className="status">Loading run…</div>;
   if (error || !summary) {
@@ -187,12 +215,29 @@ export default function RunDetailPage() {
   );
 }
 
-/** meta.json records the epitope as "764-861", in full-protein numbering. */
-function parseEpitope(v: string | null): [number, number] | null {
-  if (!v) return null;
-  const m = /^\s*(\d+)\s*[-\u2013]\s*(\d+)\s*$/.exec(v);
-  if (!m) return null;
-  return [Number(m[1]), Number(m[2])];
+/**
+ * meta.json's "Hotspot residues", in full-protein numbering.
+ *
+ * Two formats, both live. Runs whose triage predates select_patch.py declare
+ * the whole PrEST span as one hyphenated range, "764-861". Runs from the
+ * footprint patch declare the patch, which select_patch writes in the triage
+ * TSV's range syntax -- ".." for a run and "," between segments, e.g.
+ * "142,145..146,148..154". The patch is usually discontiguous (65 of the 100
+ * pilot targets have 2 or more segments), so a single [lo, hi] cannot hold it;
+ * returning every segment is what keeps the highlight honest, rather than
+ * painting the gaps between them as epitope.
+ */
+function parseEpitope(v: string | null): [number, number][] {
+  if (!v) return [];
+  const out: [number, number][] = [];
+  for (const part of v.split(",")) {
+    const m = /^\s*(\d+)\s*(?:(?:\.\.|[-\u2013])\s*(\d+)\s*)?$/.exec(part);
+    if (!m) continue;
+    const lo = Number(m[1]);
+    const hi = m[2] == null ? lo : Number(m[2]);
+    out.push(lo <= hi ? [lo, hi] : [hi, lo]);
+  }
+  return out;
 }
 
 function fmt(v: number | null | undefined): string {

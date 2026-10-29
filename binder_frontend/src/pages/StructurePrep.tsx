@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ScoredResidue, ClusterGroup } from "../types";
 import { parseStructure, detectStructureFormat } from "../utils/structureParser";
+import usePageMeta from "../utils/pageMeta";
 import {
   scoreHotspots,
   reapplyThreshold,
@@ -1159,6 +1160,13 @@ function ExportStep({
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function StructurePrep() {
+  usePageMeta({
+    title: "Structure Prep",
+    description:
+      "Score surface hotspots on a PDB or mmCIF structure and export an " +
+      "annotated PDB for RFdiffusion, BindCraft or BoltzGen.",
+  });
+
   const [step, setStep] = useState<WizardStep>("upload");
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [fileFormat, setFileFormat] = useState<"mmcif" | "pdb" | null>(null);

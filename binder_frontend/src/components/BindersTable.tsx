@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getRunBinders } from "../api/client";
 import type { Binder } from "../types";
 import CifViewer from "./CifViewer";
+import ExportMenu from "./ExportMenu";
 import { LinkedSequenceBlock, statusClass } from "./SequenceBlock";
 
 interface BinderModalProps {
@@ -163,6 +164,11 @@ const BINDER_COLUMNS: BinderColumn[] = [
 
 const DEFAULT_VISIBLE_BINDER_COLUMNS: string[] = BINDER_COLUMNS.map((c) => c.id);
 
+/** Export endpoints sit beside the JSON ones and take the same query params. */
+function exportUrl(runId: number, file: string, query: string): string {
+  return `/api/runs/${runId}/${file}?${query}`;
+}
+
 export default function BindersTable({ runId }: { runId: number }) {
   const [selectedBinder, setSelectedBinder] = useState<Binder | null>(null);
   const [sortKey, setSortKey] = useState<BinderSortKey>("rank");
@@ -265,6 +271,14 @@ export default function BindersTable({ runId }: { runId: number }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, totalPages);
 
+  // Page and page_size are deliberately absent: an export is the whole
+  // selection, not the slice on screen.
+  const exportQuery = new URLSearchParams({
+    sort: sortKey,
+    sort_dir: sortDir,
+    status: statusFilter,
+  }).toString();
+
   if (loadError) return <p className="status error">Failed to load binders: {loadError}</p>;
   if (loading && binders.length === 0) return <p className="status">Loading binders...</p>;
   if (!loading && total === 0 && statusFilter === "all") return <p className="status">No binders.</p>;
@@ -284,6 +298,40 @@ export default function BindersTable({ runId }: { runId: number }) {
         <span className="binder-filter-count">
           {total} binder{total !== 1 ? "s" : ""}
         </span>
+        {/* The export carries the status filter and the sort currently applied,
+            because the server builds both from the same queryset the table was
+            paged from -- a download that came back in a different order than
+            the screen it was clicked from would be a bug. */}
+        <ExportMenu
+          disabled={total === 0}
+          items={[
+            {
+              href: exportUrl(runId, "binders.csv", exportQuery),
+              label: "CSV",
+              hint: `${total.toLocaleString()} rows · scoring columns`,
+            },
+            {
+              href: exportUrl(runId, "binders.csv", `${exportQuery}&metrics=full`),
+              label: "CSV with all metrics",
+              hint: "adds the full pipeline metric set",
+            },
+            {
+              href: exportUrl(runId, "binders.fasta", exportQuery),
+              label: "FASTA",
+              hint: "sequences, scores in the defline",
+            },
+            {
+              href: exportUrl(runId, "binders.fasta", `${exportQuery}&limit=100`),
+              label: "FASTA · top 100",
+              hint: "leading 100 in the current sort",
+            },
+            {
+              href: `/api/runs/${runId}/meta.json`,
+              label: "meta.json",
+              hint: "provenance: container, config, hardware",
+            },
+          ]}
+        />
         <div className="binder-columns-menu" ref={columnsMenuRef}>
           <button
             className="binder-columns-btn"

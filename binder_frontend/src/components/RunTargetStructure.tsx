@@ -14,11 +14,12 @@ import { LinkedSequenceBlock } from "./SequenceBlock";
 export default function RunTargetStructure({
   run,
   paeJsonPath = null,
-  epitope = null,
+  epitope = [],
 }: {
   run: BinderRun;
   paeJsonPath?: string | null;
-  epitope?: [number, number] | null;
+  /** Segments, not one span: a footprint patch is usually discontiguous. */
+  epitope?: [number, number][];
 }) {
   const [copied, setCopied] = useState(false);
   const [hoverResno, setHoverResno] = useState<number | null>(null);
@@ -41,7 +42,7 @@ export default function RunTargetStructure({
               paeJsonPath={paeJsonPath}
               highlightResidue={hoverResno}
               onHoverResidue={setHoverResno}
-              highlightRange={epitope}
+              highlightRanges={epitope}
             />
           </div>
         )}

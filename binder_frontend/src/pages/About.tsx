@@ -1,4 +1,13 @@
+import usePageMeta from "../utils/pageMeta";
+
 export default function About() {
+  usePageMeta({
+    title: "About",
+    description:
+      "What Binder Base records for each protein binder design run, and how " +
+      "designs are scored and stored.",
+  });
+
   return (
     <div className="hero hero-page">
       <h1 className="hero-title">About</h1>

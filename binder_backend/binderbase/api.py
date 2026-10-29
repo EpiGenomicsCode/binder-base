@@ -1,10 +1,22 @@
+import csv
+import io
+import re
 from datetime import datetime
 from ninja import NinjaAPI, Schema
 from django.db.models import Count, F, Min, Max, Q
+from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from .models import Protein, BinderRun, Binder
 
 api = NinjaAPI()
+
+# 2 A is the conventional designability cut-off in de novo binder work, not a
+# property of the data, so every endpoint that applies it takes it as a query
+# parameter. Defined here rather than beside the summary endpoint because the
+# runs index applies the same two defaults, and a run's rate on the index must
+# mean what the same run's rate means on its own page.
+DEFAULT_PLACEMENT_A = 2.0
+DEFAULT_MONOMER_A = 2.0
 
 
 class ProteinListSchema(Schema):
@@ -106,6 +118,87 @@ class BinderPageSchema(Schema):
     metric_keys: list[str]
 
 
+def _rate(hits, total):
+    """Module level, not a schema method: pydantic owns the class namespace and
+    treats a leading underscore there as a private attribute."""
+    return round(hits / total, 4) if total else 0.0
+
+
+class RunListSchema(Schema):
+    """One row of the runs index: who the target was, and did it work.
+
+    Every count here comes from an annotation on the list query, not from a
+    per-run aggregate -- the index exists to compare runs, so computing it one
+    run at a time would be the N+1 the page is meant to replace.
+    """
+    id: int
+    protein_id: int
+    uniprot_id: str | None
+    gene_name: str | None
+    algorithm: str | None
+    run_datetime: datetime | None
+    epitope: str | None
+    epitope_residues: int | None
+    designs: int
+    placement_hits: int
+    monomer_consistent: int
+    passed_filters: int
+    placement_rate: float
+    monomer_rate: float
+    pass_rate: float
+    best_iptm: float | None
+    best_placement: float | None
+
+    @staticmethod
+    def resolve_uniprot_id(obj):
+        return obj.protein.uniprot_id
+
+    @staticmethod
+    def resolve_gene_name(obj):
+        return obj.protein.gene_name
+
+    @staticmethod
+    def resolve_epitope(obj):
+        # metadata is free-form JSON from whatever importer wrote the run, so
+        # this is not guaranteed to be a string. The index renders every run at
+        # once, which means one row of the wrong type would 500 the whole page
+        # rather than blank one cell.
+        v = (obj.metadata or {}).get("Hotspot residues")
+        return None if v is None else str(v)
+
+    @staticmethod
+    def resolve_epitope_residues(obj):
+        # make_meta_json writes this straight out of the triage TSV, so it
+        # arrives as a string. Runs predating select_patch.py have no patch at
+        # all, which is absence rather than zero.
+        raw = (obj.metadata or {}).get("Binding patch residues")
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def resolve_placement_rate(obj):
+        return _rate(obj.placement_hits, obj.designs)
+
+    @staticmethod
+    def resolve_monomer_rate(obj):
+        return _rate(obj.monomer_consistent, obj.designs)
+
+    @staticmethod
+    def resolve_pass_rate(obj):
+        return _rate(obj.passed_filters, obj.designs)
+
+
+class RunIndexSchema(Schema):
+    items: list[RunListSchema]
+    total: int
+    # Echoed back because the rates above are only meaningful against them, and
+    # the caller may have overridden either.
+    placement_threshold: float
+    monomer_threshold: float
+
+
 class HistogramSchema(Schema):
     edges: list[float]
     counts: list[int]
@@ -156,6 +249,61 @@ def get_protein(request, id: int):
     return get_object_or_404(Protein, pk=id)
 
 
+# --- runs index -------------------------------------------------------------
+# Runs were reachable only through their protein, so a campaign of a hundred
+# runs had no page that put them side by side. This is that page's data.
+#
+# NOT PAGED, deliberately. Paging would cut the response size but not the work:
+# the grouped aggregate below has to visit every binder row whatever slice is
+# returned, so the scan -- not the transfer -- is what costs. One row per run is
+# small (2320 runs is a few hundred KB, well under a tenth of that gzipped), and
+# shipping all of them lets the table re-sort without a round-trip, which is the
+# whole point of a leaderboard.
+#
+# If this does get slow, the fix is denormalising the four counts onto BinderRun
+# at import time, not paging. That needs a migration and a backfill, so it is
+# left as a deliberate next step rather than guessed at here.
+
+
+def run_index_queryset(placement_threshold, monomer_threshold):
+    """Every run with its four counts, grouped in one query.
+
+    Shared by the index endpoint and its CSV export so the downloaded
+    leaderboard is the leaderboard, computed the same way.
+    """
+    return (
+        BinderRun.objects.select_related("protein")
+        .annotate(
+            designs=Count("binder"),
+            placement_hits=Count("binder", filter=Q(
+                binder__bb_target_aligned_rmsd_design__lt=placement_threshold)),
+            monomer_consistent=Count("binder", filter=Q(
+                binder__designfolding_bb_rmsd__lt=monomer_threshold)),
+            passed_filters=Count("binder", filter=Q(binder__pass_filters=True)),
+            best_iptm=Max("binder__design_to_target_iptm"),
+            # Placement is an RMSD, so "best" is the minimum, not the maximum.
+            best_placement=Min("binder__bb_target_aligned_rmsd_design"),
+        )
+        # BinderRun.Meta orders by -run_datetime, which is null for imported
+        # runs that carried no date. Order by id as well so the sequence is
+        # total and the client's own sort starts from something stable.
+        .order_by("-run_datetime", "-id")
+    )
+
+
+@api.get("/runs", response=RunIndexSchema)
+def list_runs(request,
+              placement_threshold: float = DEFAULT_PLACEMENT_A,
+              monomer_threshold: float = DEFAULT_MONOMER_A):
+    items = list(run_index_queryset(placement_threshold, monomer_threshold))
+    return {
+        "items": items,
+        "total": len(items),
+        "placement_threshold": placement_threshold,
+        "monomer_threshold": monomer_threshold,
+    }
+
+
 # Sort keys accepted by the binders endpoint, mapped to model fields.
 BINDER_SORT_FIELDS = {
     "rank": "final_rank",
@@ -183,6 +331,41 @@ METRIC_KEY_SAMPLE = 200
 METRIC_KEYS_HIDDEN = {"id", "file_name"}
 
 
+def binder_queryset(run, status="all", sort="rank", sort_dir="asc"):
+    """The run's binders, filtered and ordered.
+
+    Shared by the paged listing and the exports so a download cannot come back
+    in a different order, or with a different subset, than the table the user
+    was looking at when they clicked it.
+    """
+    qs = run.binder_set.all()
+    if status != "all":
+        qs = qs.filter(status__iexact=status)
+
+    field = F(BINDER_SORT_FIELDS.get(sort, "final_rank"))
+    # Missing values sort last in both directions so blanks never lead the table.
+    ordering = field.desc(nulls_last=True) if sort_dir == "desc" else field.asc(nulls_last=True)
+    # id breaks ties so the order is total: without it, paging through a run
+    # whose designs share a rank can repeat or skip rows between pages.
+    return qs.order_by(ordering, "id")
+
+
+def run_metric_keys(run):
+    """Union of `metrics` keys, sampled rather than scanned.
+
+    Binders within a run come from the same pipeline and carry the same keys,
+    so the leading rows are representative. Failed designs may have empty
+    metrics, hence a sample larger than one page.
+    """
+    metric_keys = set()
+    # metrics=None would match JSON null rather than SQL NULL, hence __isnull.
+    sample = run.binder_set.exclude(metrics__isnull=True).values_list("metrics", flat=True)
+    for metrics in sample[:METRIC_KEY_SAMPLE]:
+        if isinstance(metrics, dict):
+            metric_keys.update(metrics)
+    return sorted(metric_keys - METRIC_KEYS_HIDDEN)
+
+
 @api.get("/runs/{run_id}/binders", response=BinderPageSchema)
 def list_run_binders(
     request,
@@ -194,15 +377,7 @@ def list_run_binders(
     status: str = "all",
 ):
     run = get_object_or_404(BinderRun, pk=run_id)
-
-    qs = run.binder_set.all()
-    if status != "all":
-        qs = qs.filter(status__iexact=status)
-
-    field = F(BINDER_SORT_FIELDS.get(sort, "final_rank"))
-    # Missing values sort last in both directions so blanks never lead the table.
-    ordering = field.desc(nulls_last=True) if sort_dir == "desc" else field.asc(nulls_last=True)
-    qs = qs.order_by(ordering, "id")
+    qs = binder_queryset(run, status, sort, sort_dir)
 
     total = qs.count()
     page = max(1, page)
@@ -210,17 +385,10 @@ def list_run_binders(
     start = (page - 1) * page_size
     items = list(qs[start : start + page_size])
 
-    metric_keys = set()
-    # metrics=None would match JSON null rather than SQL NULL, hence __isnull.
-    sample = run.binder_set.exclude(metrics__isnull=True).values_list("metrics", flat=True)
-    for metrics in sample[:METRIC_KEY_SAMPLE]:
-        if isinstance(metrics, dict):
-            metric_keys.update(metrics)
-
     return {
         "items": items,
         "total": total,
-        "metric_keys": sorted(metric_keys - METRIC_KEYS_HIDDEN),
+        "metric_keys": run_metric_keys(run),
     }
 
 # --- run summary ------------------------------------------------------------
@@ -235,11 +403,6 @@ SUMMARY_HISTOGRAMS = {
     "bb_target_aligned_rmsd_design": (0.0, 40.0, 20),
     "designfolding_bb_rmsd": (0.0, 20.0, 20),
 }
-
-# 2 A is the conventional designability cut-off in de novo binder work, not a
-# property of the data, so both thresholds are query parameters.
-DEFAULT_PLACEMENT_A = 2.0
-DEFAULT_MONOMER_A = 2.0
 
 ENRICHMENT_K = (10, 30, 50, 100, 200)
 
@@ -358,3 +521,261 @@ def get_run_summary(request, run_id: int,
             "reproducibility": meta.get("Reproducibility"),
         },
     }
+
+
+# --- exports ----------------------------------------------------------------
+# A repository whose argument is that the data is citable has to let people take
+# the data. Every export below streams: a run holds thousands of designs and the
+# campaign holds thousands of runs, so building the body in memory first would
+# put the largest response on the heap exactly when it is least affordable.
+#
+# Each export reuses binder_queryset(), so a download reflects the same filter
+# and the same order as the table the user clicked it from. The CSVs carry run
+# and protein identity on every row, so concatenating a hundred of them stays
+# self-describing.
+#
+# NOT here: bulk structure download. A pruned run is 0.5-0.7 GB of CIFs and the
+# full campaign is ~1.1-1.6 TB, which is a file-transfer problem rather than a
+# web-response one. The CSV carries cif_path per design instead, which is what a
+# fetch script needs.
+
+# Identity first, then the promoted metric columns in the order the run page
+# reads them. Stable: a consumer can rely on this header, and `metrics=full`
+# only ever appends.
+BINDER_EXPORT_COLUMNS = [
+    "binder_id", "run_id", "uniprot_id", "gene_name", "final_rank", "status",
+    "pass_filters", "binder_length", "binder_sequence", "quality_score",
+    "design_to_target_iptm", "min_interaction_pae",
+    "bb_target_aligned_rmsd_design", "bb_rmsd_design", "designfolding_bb_rmsd",
+    "complex_plddt", "design_ptm", "failure_reason", "cif_path",
+]
+
+_SLUG_RE = re.compile(r"[^A-Za-z0-9_.-]+")
+
+
+def _slug(*parts):
+    """Filename-safe slug.
+
+    Everything here reaches a Content-Disposition header, and gene names and
+    descriptions are free text from whatever wrote the run, so this strips
+    rather than trusts -- a newline in a header is a response-splitting bug,
+    not a cosmetic one.
+    """
+    # Leading dots stripped as well as underscores: "." is kept inside a part so
+    # a threshold reads "placement2.0A", but a part that is only dots would
+    # otherwise put ".." in a filename.
+    out = [_SLUG_RE.sub("_", str(p)).strip("_.") for p in parts if p]
+    return "-".join(p for p in out if p) or "export"
+
+
+def _attach(response, filename):
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    # Nothing here is user-specific, but these are generated per request and a
+    # stale binder table is worse than a second query.
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+def _csv_stream(header, rows):
+    """Yield CSV text incrementally from an iterable of row lists.
+
+    csv.writer needs a file-like sink, so it writes into a StringIO that is
+    drained and truncated after every row rather than growing for the length of
+    the run. Using csv.writer rather than ",".join is what makes a sequence,
+    failure reason or description containing a comma or quote survive.
+    """
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+
+    def drain():
+        value = buf.getvalue()
+        buf.seek(0)
+        buf.truncate(0)
+        return value
+
+    writer.writerow(header)
+    yield drain()
+    for row in rows:
+        writer.writerow(row)
+        yield drain()
+
+
+def _binder_export_rows(run, qs, metric_keys):
+    uniprot = run.protein.uniprot_id or ""
+    gene = run.protein.gene_name or ""
+    for b in qs.iterator(chunk_size=500):
+        row = [
+            b.id, run.id, uniprot, gene, b.final_rank, b.status,
+            b.pass_filters, b.binder_length, b.binder_sequence, b.quality_score,
+            b.design_to_target_iptm, b.min_interaction_pae,
+            b.bb_target_aligned_rmsd_design, b.bb_rmsd_design,
+            b.designfolding_bb_rmsd, b.complex_plddt, b.design_ptm,
+            b.failure_reason, b.cif_path.name if b.cif_path else "",
+        ]
+        if metric_keys:
+            metrics = b.metrics if isinstance(b.metrics, dict) else {}
+            row.extend(metrics.get(k, "") for k in metric_keys)
+        yield row
+
+
+@api.get("/runs/{run_id}/binders.csv", include_in_schema=True)
+def export_run_binders_csv(
+    request,
+    run_id: int,
+    sort: str = "rank",
+    sort_dir: str = "asc",
+    status: str = "all",
+    metrics: str = "promoted",
+):
+    """Every binder in the run as CSV.
+
+    Unpaged on purpose -- an export that returned one page of twenty would be
+    the thing it exists to replace.
+
+    `metrics=full` appends the ~245 pipeline columns from the metrics JSON.
+    Those keys are sampled rather than scanned (see run_metric_keys), so a run
+    whose later designs carry keys the leading ones do not would lose them;
+    `metrics=promoted`, the default, is the stable subset that is also indexed.
+    """
+    run = get_object_or_404(BinderRun.objects.select_related("protein"), pk=run_id)
+    qs = binder_queryset(run, status, sort, sort_dir)
+    metric_keys = run_metric_keys(run) if metrics == "full" else []
+
+    response = StreamingHttpResponse(
+        _csv_stream(BINDER_EXPORT_COLUMNS + metric_keys,
+                    _binder_export_rows(run, qs, metric_keys)),
+        content_type="text/csv; charset=utf-8",
+    )
+    name = _slug(run.protein.uniprot_id, run.protein.gene_name, f"run{run.id}", "binders")
+    return _attach(response, f"{name}.csv")
+
+
+def _fasta_stream(run, qs, wrap=60):
+    """FASTA with the scoring metrics in the defline.
+
+    A bare sequence file loses the only thing that distinguishes one design
+    from another, and these go straight into alignment and clustering tools
+    where the header is all that survives. key=value after the identifier is
+    the convention those tools tolerate -- they split the defline on the first
+    space and keep the rest as a free-text description.
+    """
+    uniprot = run.protein.uniprot_id or ""
+    gene = run.protein.gene_name or ""
+    for b in qs.iterator(chunk_size=500):
+        fields = [f"run={run.id}"]
+        if uniprot:
+            fields.append(f"uniprot={uniprot}")
+        if gene:
+            fields.append(f"gene={gene}")
+        if b.final_rank is not None:
+            fields.append(f"rank={b.final_rank}")
+        seq = b.binder_sequence or ""
+        fields.append(f"len={b.binder_length if b.binder_length is not None else len(seq)}")
+        for key, value, digits in (
+            ("iptm", b.design_to_target_iptm, 4),
+            ("ipae", b.min_interaction_pae, 3),
+            ("placement_rmsd", b.bb_target_aligned_rmsd_design, 3),
+            ("monomer_rmsd", b.designfolding_bb_rmsd, 3),
+        ):
+            if value is not None:
+                fields.append(f"{key}={round(value, digits)}")
+        if b.pass_filters is not None:
+            fields.append(f"pass={'yes' if b.pass_filters else 'no'}")
+        # The identifier is the one token that must stay unique and parseable,
+        # so it is built from ids rather than from anything free-text.
+        yield f">binder{b.id}|run{run.id} {' '.join(fields)}\n"
+        for i in range(0, len(seq), wrap):
+            yield seq[i:i + wrap] + "\n"
+
+
+@api.get("/runs/{run_id}/binders.fasta", include_in_schema=True)
+def export_run_binders_fasta(
+    request,
+    run_id: int,
+    sort: str = "rank",
+    sort_dir: str = "asc",
+    status: str = "all",
+    limit: int = 0,
+):
+    """The run's binder sequences as FASTA.
+
+    `limit` takes the leading N in the current sort, which with the default
+    sort is the top N by pipeline rank -- the usual ask, since nobody orders
+    1000 designs into a synthesis run.
+    """
+    run = get_object_or_404(BinderRun.objects.select_related("protein"), pk=run_id)
+    qs = binder_queryset(run, status, sort, sort_dir)
+    suffix = "binders"
+    if limit > 0:
+        qs = qs[:limit]
+        suffix = f"top{limit}"
+
+    response = StreamingHttpResponse(
+        _fasta_stream(run, qs),
+        content_type="text/x-fasta; charset=utf-8",
+    )
+    name = _slug(run.protein.uniprot_id, run.protein.gene_name, f"run{run.id}", suffix)
+    return _attach(response, f"{name}.fasta")
+
+
+@api.get("/runs/{run_id}/meta.json", include_in_schema=True)
+def export_run_meta(request, run_id: int):
+    """The run's provenance record, as a file.
+
+    This is what make_meta_json wrote next to the run, round-tripped back out:
+    container and checkpoint fingerprints, resolved config hash, sampler
+    parameters, the epitope and the per-attempt hardware log. It is the half of
+    a citation that the design metrics are not.
+    """
+    run = get_object_or_404(BinderRun.objects.select_related("protein"), pk=run_id)
+    # safe=False because BinderRun.metadata is a JSONField: make_meta_json
+    # writes an object, but the model permits a list and JsonResponse refuses a
+    # non-dict without it.
+    response = JsonResponse(run.metadata if run.metadata is not None else {},
+                            safe=False, json_dumps_params={"indent": 2})
+    name = _slug(run.protein.uniprot_id, run.protein.gene_name, f"run{run.id}", "meta")
+    return _attach(response, f"{name}.json")
+
+
+RUN_INDEX_EXPORT_COLUMNS = [
+    "run_id", "uniprot_id", "gene_name", "algorithm", "run_datetime",
+    "epitope", "epitope_residues", "designs", "placement_hits",
+    "monomer_consistent", "passed_filters", "placement_rate", "monomer_rate",
+    "pass_rate", "best_iptm", "best_placement",
+]
+
+
+@api.get("/runs.csv", include_in_schema=True)
+def export_runs_csv(request,
+                    placement_threshold: float = DEFAULT_PLACEMENT_A,
+                    monomer_threshold: float = DEFAULT_MONOMER_A):
+    """The runs index as CSV -- one row per run, campaign-wide.
+
+    The thresholds are part of what the rate columns mean, so they go in the
+    filename rather than being left for the reader to assume.
+    """
+    runs = run_index_queryset(placement_threshold, monomer_threshold)
+
+    def rows():
+        for r in runs.iterator(chunk_size=200):
+            yield [
+                r.id, r.protein.uniprot_id or "", r.protein.gene_name or "",
+                r.algorithm or "",
+                r.run_datetime.isoformat() if r.run_datetime else "",
+                RunListSchema.resolve_epitope(r) or "",
+                RunListSchema.resolve_epitope_residues(r),
+                r.designs, r.placement_hits, r.monomer_consistent,
+                r.passed_filters,
+                _rate(r.placement_hits, r.designs),
+                _rate(r.monomer_consistent, r.designs),
+                _rate(r.passed_filters, r.designs),
+                r.best_iptm, r.best_placement,
+            ]
+
+    response = StreamingHttpResponse(
+        _csv_stream(RUN_INDEX_EXPORT_COLUMNS, rows()),
+        content_type="text/csv; charset=utf-8",
+    )
+    name = _slug("binderbase-runs", f"placement{placement_threshold}A",
+                 f"monomer{monomer_threshold}A")
+    return _attach(response, f"{name}.csv")
