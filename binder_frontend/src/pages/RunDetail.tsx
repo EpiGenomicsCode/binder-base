@@ -7,7 +7,7 @@ import RunTargetStructure from "../components/RunTargetStructure";
 import RunVerdict from "../components/RunVerdict";
 import { EnrichmentChart, HistogramChart } from "../components/RunCharts";
 import { RunMetadata, RunStepsList, configSummary } from "../components/RunConfig";
-import usePageMeta, { count, geneLabel } from "../utils/pageMeta";
+import usePageMeta, { count, geneWithAccession } from "../utils/pageMeta";
 
 /**
  * A run's own page.
@@ -81,13 +81,13 @@ export default function RunDetailPage() {
   // where on the target, and whether the designs landed there.
   usePageMeta({
     title: summary
-      ? `${geneLabel(summary.protein.gene_name, summary.protein.uniprot_id,
+      ? `${geneWithAccession(summary.protein.gene_name, summary.protein.uniprot_id,
                      `Protein #${summary.protein.id}`)} design run #${summary.run_id}`
       : "Design run",
     description: summary
       ? [
           `${count(summary.counts.designs)} de novo binders designed against `,
-          geneLabel(summary.protein.gene_name, summary.protein.uniprot_id, "target"),
+          geneWithAccession(summary.protein.gene_name, summary.protein.uniprot_id, "target"),
           summary.target.epitope ? ` epitope ${summary.target.epitope}` : "",
           `. ${count(summary.counts.placement_hits)} placed under `,
           `${summary.rates.placement_threshold} Å `,
