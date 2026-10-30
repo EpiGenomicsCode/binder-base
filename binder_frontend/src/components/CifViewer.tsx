@@ -34,9 +34,19 @@ interface Props {
   label: string;
   /** Coloring theme + legend. Default "confidence". */
   coloring?: CifColoring;
-  /** Residue number (1-based, label_seq_id) to highlight in the 3D view, or null. */
+  /**
+   * Residue to highlight in the 3D view, as the structure's own auth_seq_id,
+   * or null.
+   *
+   * auth_seq_id and not label_seq_id, which would be the obvious way to get a
+   * position within the chain: it is one in most files, but 4 of the 69
+   * production targets -- both TEK runs and TAL1 -- set label_seq_id equal to
+   * auth_seq_id instead, so it means different things in different files.
+   * auth_seq_id is also what this component's own epitope theme colours by,
+   * so reading hovers out of label_seq_id made the two disagree.
+   */
   highlightResidue?: number | null;
-  /** Called with the residue number under the cursor in the 3D view (or null). */
+  /** Called with the auth_seq_id under the cursor in the 3D view (or null). */
   onHoverResidue?: (resno: number | null) => void;
   /**
    * For multi-chain structures, restrict hover-linking to the chain whose residue
@@ -382,7 +392,7 @@ export default function CifViewer({
             if (loc) {
               const chain = chainAsymRef.current;
               if (!chain || StructureProperties.chain.label_asym_id(loc) === chain) {
-                resno = StructureProperties.residue.label_seq_id(loc);
+                resno = StructureProperties.residue.auth_seq_id(loc);
               }
             }
           }
@@ -420,7 +430,7 @@ export default function CifViewer({
         (Q: any) => {
           const tests: Record<string, unknown> = {
             "residue-test": Q.core.rel.eq([
-              Q.struct.atomProperty.macromolecular.label_seq_id(),
+              Q.struct.atomProperty.macromolecular.auth_seq_id(),
               highlightResidue,
             ]),
           };

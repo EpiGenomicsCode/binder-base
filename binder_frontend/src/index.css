@@ -1491,6 +1491,17 @@ dd { margin: 0; word-break: break-word; }
   margin: 0;
 }
 
+/* Why this run's PAE is not cross-linked to the panels beside it. Stated
+   rather than left to look like a dead hover, since a silently uncoupled
+   viewer reads as broken. */
+.pae-unmapped {
+  color: #888;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  margin: 0.5rem 0 0;
+  max-width: 46ch;
+}
+
 .pae-legend {
   display: flex;
   flex-direction: column;

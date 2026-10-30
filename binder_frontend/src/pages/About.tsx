@@ -135,11 +135,19 @@ const METRICS: Metric[] = [
     column: 'metadata["Hotspot residues"]',
     body: (
       <>
-        The residues the designer was told to bind, in the target's own
-        numbering — <code>675..678,700..709,728..733</code>. Usually
+        The residues the designer was told to bind, in the target structure's
+        own numbering — <code>675..678,700..709,728..733</code>. Usually
         discontiguous, because a binding patch is a surface footprint rather
-        than a stretch of sequence. Targets keep the full protein's numbering
-        even when cropped, so these numbers index the UniProt entry directly.
+        than a stretch of sequence.
+        <p className="about-note">
+          These are <em>not</em> always UniProt positions. A target is a crop
+          of its protein, and whether the crop keeps the parent's numbering
+          depends on the tool that made it — across the runs recorded here
+          most do not. Each run stores where its crop sits in the UniProt
+          sequence, which is what lets the PAE panel mark the epitope in the
+          right place; a run without that mapping shows an unmarked PAE
+          rather than a guess.
+        </p>
       </>
     ),
   },

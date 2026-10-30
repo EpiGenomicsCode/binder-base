@@ -24,6 +24,8 @@ KEY_HOTSPOT = "Hotspot residues"
 KEY_MASKED = "Masked cut faces"
 KEY_PATCH_N = "Binding patch residues"
 KEY_SOURCE = "Hotspot source"
+KEY_RESIDUES = "Target residues"
+KEY_OFFSET = "Residue offset"
 
 RECOVERED_NOTE = (
     "Recovered from the target structure's B_iso_or_equiv column, which carries "
@@ -159,8 +161,86 @@ class RunCodeSource(Source):
             runs, key=lambda r: (r.run_datetime is None, r.run_datetime, r.pk))
 
 
+class ResidueMapSource(Source):
+    """How the target structure's numbering lines up with everything else.
+
+    Records two things, which fail separately:
+
+    "Target residues" is the crop's own auth_seq_id numbering in order, so the
+    nth residue of target_sequence is the nth number here. It is what lets the
+    structure viewer and the sequence block agree, and it cannot be taken from
+    label_seq_id instead: 65 of 69 production targets number that 1..N and the
+    other 4 set it equal to auth_seq_id, so it means different things in
+    different files.
+
+    "Residue offset" places the crop in the parent protein, uniprot = auth +
+    offset. The run page draws the protein's full-length PAE beside the crop,
+    and before this existed it indexed the two as though they shared a
+    numbering. 62 of 69 targets are renumbered by the crop, so the epitope
+    band landed on arbitrary residues and hovering lit up an unrelated row.
+    Measured from the structure rather than assumed, because the assumption is
+    what was wrong.
+    """
+
+    name = "residue-map"
+    help = "the target structure's numbering, and where the crop sits in the protein"
+
+    def derive(self, run, options):
+        metadata = run.metadata or {}
+        force = options.get("force")
+        if (metadata.get(KEY_RESIDUES)
+                and metadata.get(KEY_OFFSET) is not None and not force):
+            raise Skip()
+        if not run.cif_path:
+            raise Skip("no target structure on the run", is_error=True)
+        path = RunUpdateCommand.media_path(run.cif_path)
+        if not os.path.isfile(path):
+            raise Skip(f"target structure missing ({path})", is_error=True)
+        full = run.protein.sequence or ""
+        try:
+            mapping = structure.residue_mapping(path, full)
+        except (OSError, ValueError) as exc:
+            raise Skip(f"could not read target structure ({exc})", is_error=True)
+        if mapping is None:
+            raise Skip("target structure holds no residues", is_error=True)
+
+        residues, offset = mapping["residues"], mapping["offset"]
+        # Collected rather than yielded, because the command lists the whole
+        # derivation before writing any of it: a Skip raised part-way through
+        # a generator discards what it already produced, which would lose the
+        # numbering of exactly those runs that fail to align.
+        changes = []
+        if not metadata.get(KEY_RESIDUES) or force:
+            span = structure.to_ranges(residues)
+            note = f"{len(residues)} residues numbered {span}"
+            if offset is None:
+                # The structure and the sequence stay linked; only the PAE
+                # panel goes unmarked, which is the right outcome -- a wrong
+                # map would draw a confident band on residues the design never
+                # saw. Said on the change itself so it appears in --dry-run.
+                note += f" -- but {self._unaligned(run, full)}"
+            changes.append(Change(KEY_RESIDUES, span, in_metadata=True,
+                                  note=note))
+        if offset is not None and (metadata.get(KEY_OFFSET) is None or force):
+            changes.append(Change(
+                KEY_OFFSET, offset, in_metadata=True,
+                note=f"{offset:+d} (uniprot = auth {offset:+d})"))
+
+        if not changes:
+            # Numbering already recorded, and the crop is still unplaceable.
+            raise Skip(self._unaligned(run, full))
+        return changes
+
+    @staticmethod
+    def _unaligned(run, full):
+        return (f"crop does not align unambiguously to "
+                f"{run.protein.uniprot_id or 'the protein'} ({len(full)} aa); "
+                f"PAE stays unmarked")
+
+
 SOURCES = {s.name: s
-           for s in (ConstraintsSource(), PatchSizeSource(), RunCodeSource())}
+           for s in (ConstraintsSource(), PatchSizeSource(), RunCodeSource(),
+                     ResidueMapSource())}
 
 
 class Command(RunUpdateCommand):

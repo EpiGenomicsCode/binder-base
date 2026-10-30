@@ -170,6 +170,14 @@ export interface RunSummary {
     crop_length: number | null;
     structure_source: string | null;
     masked_faces: string | null;
+    /**
+     * Where the crop sits in the parent protein, as UniProt residue numbers in
+     * the crop's own order -- so the nth residue of `target_sequence` is the
+     * nth number here. Null for a run whose crop could not be placed.
+     */
+    residues: string | null;
+    /** `uniprot = auth + offset`, for the auth-numbered ranges above. */
+    residue_offset: number | null;
   };
   counts: {
     designs: number;

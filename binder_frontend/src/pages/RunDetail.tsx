@@ -8,6 +8,7 @@ import RunVerdict from "../components/RunVerdict";
 import { EnrichmentChart, HistogramChart } from "../components/RunCharts";
 import { RunMetadata, RunStepsList, configSummary } from "../components/RunConfig";
 import usePageMeta, { count, geneWithAccession } from "../utils/pageMeta";
+import { buildResidueMap, parseRanges } from "../utils/residueMap";
 
 /**
  * A run's own page.
@@ -158,7 +159,8 @@ export default function RunDetailPage() {
         <RunTargetStructure
           run={run}
           paeJsonPath={protein?.pae_json_path ?? null}
-          epitope={parseEpitope(target.epitope)}
+          epitope={parseRanges(target.epitope)}
+          residueMap={buildResidueMap(target.residues, target.residue_offset)}
         />
       )}
 
@@ -192,8 +194,8 @@ export default function RunDetailPage() {
           per-design complex view cannot disagree about where the epitope is. */}
       <BindersTable
         runId={summary.run_id}
-        epitope={parseEpitope(target.epitope)}
-        masked={parseEpitope(target.masked_faces)}
+        epitope={parseRanges(target.epitope)}
+        masked={parseRanges(target.masked_faces)}
       />
 
       {/* 6. Provenance, collapsed */}
@@ -222,31 +224,6 @@ export default function RunDetailPage() {
       )}
     </div>
   );
-}
-
-/**
- * meta.json's "Hotspot residues", in full-protein numbering.
- *
- * Two formats, both live. Runs whose triage predates select_patch.py declare
- * the whole PrEST span as one hyphenated range, "764-861". Runs from the
- * footprint patch declare the patch, which select_patch writes in the triage
- * TSV's range syntax -- ".." for a run and "," between segments, e.g.
- * "142,145..146,148..154". The patch is usually discontiguous (65 of the 100
- * pilot targets have 2 or more segments), so a single [lo, hi] cannot hold it;
- * returning every segment is what keeps the highlight honest, rather than
- * painting the gaps between them as epitope.
- */
-function parseEpitope(v: string | null): [number, number][] {
-  if (!v) return [];
-  const out: [number, number][] = [];
-  for (const part of v.split(",")) {
-    const m = /^\s*(\d+)\s*(?:(?:\.\.|[-\u2013])\s*(\d+)\s*)?$/.exec(part);
-    if (!m) continue;
-    const lo = Number(m[1]);
-    const hi = m[2] == null ? lo : Number(m[2]);
-    out.push(lo <= hi ? [lo, hi] : [hi, lo]);
-  }
-  return out;
 }
 
 function fmt(v: number | null | undefined): string {

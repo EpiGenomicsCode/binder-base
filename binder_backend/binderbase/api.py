@@ -539,7 +539,20 @@ def get_run_summary(request, run_id: int,
         "target": {"epitope": meta.get("Hotspot residues"),
                    "crop_length": meta.get("Crop length"),
                    "structure_source": meta.get("Target structure source"),
-                   "masked_faces": meta.get("Masked cut faces")},
+                   "masked_faces": meta.get("Masked cut faces"),
+                   # How the target structure's numbering lines up with
+                   # everything else on the run page. `residues` is the crop's
+                   # own auth_seq_id numbering in order, so the nth residue of
+                   # target_sequence is the nth number here -- it is what links
+                   # the structure viewer to the sequence block, and it is also
+                   # the frame `epitope` and `masked_faces` are written in.
+                   # `residue_offset` places the crop in the parent protein
+                   # (uniprot = auth + offset), which the PAE panel needs
+                   # because it shows the protein's full-length matrix. Null
+                   # when the crop could not be placed, and the panel then
+                   # draws no band rather than a wrong one.
+                   "residues": meta.get("Target residues"),
+                   "residue_offset": meta.get("Residue offset")},
         "counts": {"designs": n, "passed_filters": agg["passed"],
                    "placement_hits": agg["placement_hits"],
                    "monomer_consistent": agg["monomer_ok"]},
