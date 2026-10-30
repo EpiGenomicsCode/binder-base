@@ -561,7 +561,13 @@ h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter
 }
 
 /* ── Metric glossary ── */
-.about-glossary { margin: 0; }
+/* display:block is load-bearing. There is an unscoped `dl { display: grid;
+   grid-template-columns: max-content 1fr }` further down, written for the run
+   page's config list, and without this override the glossary becomes a
+   two-column grid whose items are the .about-term wrappers -- so every other
+   definition lands in the max-content column and stretches to the width of its
+   own longest paragraph. */
+.about-glossary { display: block; margin: 0; }
 
 .about-term {
   padding: 0.9rem 0;
