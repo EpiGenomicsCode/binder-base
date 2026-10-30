@@ -122,7 +122,7 @@ export default function ProteinDetailPage() {
   return (
     <div>
       <div className="pd-topbar">
-        <Link to="/proteins" className="pill-btn back-link-inline">← All Proteins</Link>
+        <Link to="/proteins" className="pill-btn back-link-inline">← All Targets</Link>
         <ProteinSearchBar
           value={searchQuery}
           onChange={setSearchQuery}

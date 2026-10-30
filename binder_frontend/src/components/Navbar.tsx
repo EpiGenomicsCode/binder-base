@@ -59,7 +59,11 @@ export default function Navbar() {
             </form>
           )}
           <Link to="/" className="navbar-link" onClick={() => setMenuOpen(false)}>Home</Link>
-          <Link to="/proteins" className="navbar-link" onClick={() => setMenuOpen(false)}>Browse</Link>
+          {/* "Browse" named an action and said nothing about what was being
+              browsed, which left it indistinguishable from "Runs". The two
+              pages answer different questions: Targets is one row per protein,
+              Runs is one row per design run against one. */}
+          <Link to="/proteins" className="navbar-link" onClick={() => setMenuOpen(false)}>Targets</Link>
           <Link to="/runs" className="navbar-link" onClick={() => setMenuOpen(false)}>Runs</Link>
           <Link to="/structure-prep" className="navbar-link" onClick={() => setMenuOpen(false)}>Structure Prep</Link>
           <Link to="/about" className="navbar-link" onClick={() => setMenuOpen(false)}>About</Link>

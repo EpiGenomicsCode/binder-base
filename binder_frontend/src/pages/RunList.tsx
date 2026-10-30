@@ -24,7 +24,7 @@ import type { RunIndex, RunListRow } from "../types";
  */
 
 type SortKey =
-  | "gene" | "uniprot" | "epitope" | "designs" | "placement"
+  | "gene" | "uniprot" | "method" | "epitope" | "designs" | "placement"
   | "monomer" | "pass" | "iptm" | "best_placement" | "date";
 type SortDir = "asc" | "desc";
 
@@ -59,8 +59,22 @@ function cmpStr(a: string | null, b: string | null): number {
 }
 
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
-  if (!active) return <span className="sort-icon inactive">↕</span>;
-  return <span className="sort-icon active">{dir === "asc" ? "↑" : "↓"}</span>;
+  if (!active) return <span className="sort-icon inactive" aria-hidden="true">↕</span>;
+  return (
+    <span className="sort-icon active" aria-hidden="true">
+      {dir === "asc" ? "↑" : "↓"}
+    </span>
+  );
+}
+
+/**
+ * "BlitzGen 1.0.0 (BoltzGen design + Blitz K16 folding)" -> "BlitzGen 1.0.0".
+ * Same trim as RunDetail's title, so a run reads the same on both pages. The
+ * full string stays on the cell's title attribute.
+ */
+function shortMethod(algorithm: string | null): string {
+  if (!algorithm) return "—";
+  return algorithm.split(" (")[0];
 }
 
 interface Column {
@@ -69,25 +83,48 @@ interface Column {
   numeric: boolean;
   /** Descending first for rates and scores: the interesting end is the top. */
   descFirst: boolean;
+  /** Shown on hover and to screen readers; the labels alone are terse. */
+  hint: string;
 }
 
+/**
+ * Labelled by DESTINATION, not by content, for the two linked columns. The
+ * first column links to the run and the second to the protein, and naming them
+ * "Gene" and "UniProt" described what the text was while hiding where the two
+ * links went -- which read as one row with two arbitrary destinations.
+ */
 const COLUMNS: Column[] = [
-  { key: "gene", label: "Gene", numeric: false, descFirst: false },
-  { key: "uniprot", label: "UniProt", numeric: false, descFirst: false },
-  { key: "epitope", label: "Epitope", numeric: false, descFirst: false },
-  { key: "designs", label: "Designs", numeric: true, descFirst: true },
-  { key: "placement", label: "Placed", numeric: true, descFirst: true },
-  { key: "monomer", label: "Monomer", numeric: true, descFirst: true },
-  { key: "pass", label: "Passed", numeric: true, descFirst: true },
-  { key: "iptm", label: "Best ipTM", numeric: true, descFirst: true },
-  { key: "best_placement", label: "Best RMSD", numeric: true, descFirst: false },
-  { key: "date", label: "Run date", numeric: false, descFirst: true },
+  { key: "gene", label: "Run", numeric: false, descFirst: false,
+    hint: "Open this design run" },
+  { key: "uniprot", label: "Target", numeric: false, descFirst: false,
+    hint: "Open the target protein" },
+  { key: "method", label: "Method", numeric: false, descFirst: false,
+    hint: "Design algorithm and version" },
+  { key: "epitope", label: "Epitope", numeric: false, descFirst: false,
+    hint: "Targeted residue patch, sorted by size" },
+  { key: "designs", label: "Designs", numeric: true, descFirst: true,
+    hint: "Designs generated in this run" },
+  { key: "placement", label: "Placed", numeric: true, descFirst: true,
+    hint: "Designs that refolded onto the epitope" },
+  { key: "monomer", label: "Monomer", numeric: true, descFirst: true,
+    hint: "Designs whose monomer refolded self-consistently" },
+  { key: "pass", label: "Passed", numeric: true, descFirst: true,
+    hint: "Designs passing all filters" },
+  { key: "iptm", label: "Best ipTM", numeric: true, descFirst: true,
+    hint: "Highest interface confidence in the run" },
+  { key: "best_placement", label: "Best RMSD", numeric: true, descFirst: false,
+    hint: "Closest placement achieved; lower is better" },
+  { key: "date", label: "Run date", numeric: false, descFirst: true,
+    hint: "When the run was executed" },
 ];
 
 function compare(a: RunListRow, b: RunListRow, key: SortKey): number {
   switch (key) {
     case "gene": return cmpStr(a.gene_name, b.gene_name);
     case "uniprot": return cmpStr(a.uniprot_id, b.uniprot_id);
+    // The raw string, not shortMethod's: it shares the displayed prefix, so the
+    // order is the same, and a null stays "" rather than sorting under "—".
+    case "method": return cmpStr(a.algorithm, b.algorithm);
     case "epitope": return cmpNum(a.epitope_residues, b.epitope_residues);
     case "designs": return a.designs - b.designs;
     case "placement": return a.placement_rate - b.placement_rate;
@@ -191,6 +228,16 @@ export default function RunList() {
   const safePage = Math.min(page, totalPages);
   const visible = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
+  // Non-null: sortKey is a SortKey and COLUMNS covers every member of the
+  // union, so the lookup cannot miss. Falling back to COLUMNS[0] rather than
+  // asserting keeps that true if a key is ever added without a column.
+  const activeColumn = COLUMNS.find((c) => c.key === sortKey) ?? COLUMNS[0];
+
+  function clearFilters() {
+    setOnlyProductive(false);
+    handleQueryChange("");
+  }
+
   // Above the early returns, and canonicalised without ?q= for the same reason
   // the protein list is.
   usePageMeta({
@@ -207,7 +254,7 @@ export default function RunList() {
     return (
       <div className="status">
         No runs have been imported yet.
-        <div><Link to="/proteins">Browse proteins</Link></div>
+        <div><Link to="/proteins">Browse targets</Link></div>
       </div>
     );
   }
@@ -216,16 +263,12 @@ export default function RunList() {
     <div className="runs-page">
       <div className="list-header">
         <h2 className="list-title">Design Runs</h2>
-        <form className="run-search-form" onSubmit={(e) => e.preventDefault()}>
-          <input
-            className="navbar-search-input"
-            type="search"
-            placeholder="Filter by gene, UniProt, epitope…"
-            value={query}
-            onChange={(e) => handleQueryChange(e.target.value)}
-          />
-        </form>
       </div>
+      <p className="list-subtitle">
+        One row per design run. A target can have several — different methods,
+        or different epitopes on the same protein. For the proteins themselves,
+        see <Link to="/proteins">Targets</Link>.
+      </p>
 
       <div className="runs-totals">
         <div className="runs-total-item">
@@ -255,20 +298,37 @@ export default function RunList() {
         </div>
       </div>
 
+      {/* The filter controls belong against the table they act on. The search
+          box used to sit in the page header wearing .navbar-search-input, so it
+          read as site chrome rather than a control on these rows -- and with
+          the sort affordance equally invisible, the page looked like a static
+          dump. */}
       <div className="runs-filter-bar">
-        <label className="runs-toggle">
-          <input
-            type="checkbox"
-            checked={onlyProductive}
-            onChange={(e) => { setOnlyProductive(e.target.checked); setPage(1); }}
-          />
-          <span>Only runs with at least one placed design</span>
-        </label>
-        {(query || onlyProductive) && (
-          <span className="runs-filter-count">
-            {filtered.length} of {rows.length} runs
-          </span>
-        )}
+        <div className="runs-filter-group">
+          <label className="runs-filter-field">
+            <span className="runs-filter-label">Filter</span>
+            <input
+              className="runs-filter-input"
+              type="search"
+              placeholder="gene, UniProt, epitope, method…"
+              value={query}
+              onChange={(e) => handleQueryChange(e.target.value)}
+            />
+          </label>
+          <label className="runs-toggle">
+            <input
+              type="checkbox"
+              checked={onlyProductive}
+              onChange={(e) => { setOnlyProductive(e.target.checked); setPage(1); }}
+            />
+            <span>Only runs with a placed design</span>
+          </label>
+          {(query || onlyProductive) && (
+            <button type="button" className="runs-filter-clear" onClick={clearFilters}>
+              Clear
+            </button>
+          )}
+        </div>
         {/* Every run, not the filtered view: the filters here are client-side
             and the endpoint has no way to be told about them, so offering a
             "filtered" download would quietly return something else. */}
@@ -280,6 +340,22 @@ export default function RunList() {
             hint: `all ${rows.length.toLocaleString()} runs, one row each`,
           }]}
         />
+      </div>
+
+      {/* Says out loud what the table is currently doing. Without it the sort
+          state lives only in an arrow glyph inside one header cell, which is
+          not where anyone looks to answer "what am I looking at". */}
+      <div className="runs-state-bar">
+        <span className="runs-state-sort">
+          Sorted by <strong>{activeColumn.label}</strong>{" "}
+          {sortDir === "asc" ? "ascending" : "descending"}
+          <span className="runs-state-hint"> — click any column heading to re-sort</span>
+        </span>
+        <span className="runs-state-count">
+          {query || onlyProductive
+            ? `${filtered.length.toLocaleString()} of ${rows.length.toLocaleString()} runs`
+            : `${rows.length.toLocaleString()} runs`}
+        </span>
       </div>
 
       {filtered.length === 0 ? (
@@ -303,8 +379,9 @@ export default function RunList() {
                             on the keyboard path. */}
                         <button
                           type="button"
-                          className="th-sort-btn"
+                          className={`th-sort-btn${active ? " active" : ""}`}
                           onClick={() => handleSort(col)}
+                          title={`${col.hint} · click to sort`}
                         >
                           {col.label} <SortIcon active={active} dir={sortDir} />
                         </button>
@@ -325,6 +402,13 @@ export default function RunList() {
                       <Link to={`/proteins/${r.protein_id}`} className="runs-uniprot">
                         {r.uniprot_id ?? "—"}
                       </Link>
+                    </td>
+                    {/* Was fetched for the text filter but never shown. One
+                        protein now carries several runs that differ only by
+                        method or epitope, so without this column two rows read
+                        as the same run. */}
+                    <td className="runs-method" title={r.algorithm ?? undefined}>
+                      {shortMethod(r.algorithm)}
                     </td>
                     {/* A patch is often many segments -- "142,145..146,148..154,
                         159..161" is a real value -- so the range is clamped to

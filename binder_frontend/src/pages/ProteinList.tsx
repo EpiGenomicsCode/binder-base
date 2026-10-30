@@ -131,9 +131,9 @@ export default function ProteinList() {
   // but not in the canonical: every permutation of ?q= is this one page.
   const trimmedQuery = query.trim();
   usePageMeta({
-    title: trimmedQuery ? `"${trimmedQuery}" — protein search` : "Proteins",
+    title: trimmedQuery ? `"${trimmedQuery}" — target search` : "Targets",
     description: trimmedQuery
-      ? `${count(filtered.length)} protein${filtered.length === 1 ? "" : "s"} ` +
+      ? `${count(filtered.length)} target protein${filtered.length === 1 ? "" : "s"} ` +
         `matching "${trimmedQuery}" in Binder Base.`
       : `Browse ${count(proteins.length)} target proteins with de novo binder ` +
         `design runs. Search by UniProt ID, gene, organism or protein name.`,
@@ -154,9 +154,16 @@ export default function ProteinList() {
   return (
     <div>
       <div className="list-header">
-        <h2 className="list-title">All Proteins</h2>
+        {/* "Targets" throughout, matching the nav: these are the proteins
+            binders are designed against, and the word distinguishes the page
+            from /runs without needing a paragraph to explain it. */}
+        <h2 className="list-title">Targets</h2>
         <ProteinSearchBar value={query} onChange={handleQueryChange} compact />
       </div>
+      <p className="list-subtitle">
+        One row per target protein. For the design runs against them, with
+        placement and pass rates, see <Link to="/runs">Design Runs</Link>.
+      </p>
 
       <div className="list-body row g-4">
         {/* ── Sidebar ── */}
@@ -168,19 +175,25 @@ export default function ProteinList() {
             )}
           </div>
 
-          <div className="filter-section">
-            <div className="filter-section-label">Organism</div>
-            {organisms.map((org) => (
-              <label key={org} className="filter-checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={selectedOrganisms.has(org)}
-                  onChange={() => toggleOrganism(org)}
-                />
-                <span className="filter-checkbox-label">{org}</span>
-              </label>
-            ))}
-          </div>
+          {/* A filter offering one choice filters nothing -- every protein in
+              the database is Homo sapiens today -- so it is shown only once
+              there is something to choose between. The organism is still
+              searchable and still on the detail page. */}
+          {organisms.length > 1 && (
+            <div className="filter-section">
+              <div className="filter-section-label">Organism</div>
+              {organisms.map((org) => (
+                <label key={org} className="filter-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={selectedOrganisms.has(org)}
+                    onChange={() => toggleOrganism(org)}
+                  />
+                  <span className="filter-checkbox-label">{org}</span>
+                </label>
+              ))}
+            </div>
+          )}
 
           <div className="filter-section">
             <div className="filter-section-label">Length (aa)</div>

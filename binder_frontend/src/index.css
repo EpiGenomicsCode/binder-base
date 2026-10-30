@@ -532,6 +532,16 @@ h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter
   white-space: nowrap;
 }
 
+/* One line saying what this page is and where its sibling is. Targets and Runs
+   list overlapping sets of proteins, so each has to say which question it
+   answers or they read as duplicates of each other. */
+.list-subtitle {
+  margin: -0.75rem 0 1.1rem;
+  font-size: 0.85rem;
+  color: #777;
+}
+.list-subtitle a { color: var(--teal); }
+
 .list-body {
   align-items: flex-start;
 }
@@ -3173,9 +3183,6 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
 
 .runs-page .list-header { gap: 1rem; }
 
-.run-search-form { flex: 1; max-width: 340px; }
-.run-search-form .navbar-search-input { width: 100%; }
-
 /* Campaign totals. Pooled over the filtered rows, so the strip answers "did
    the campaign work" rather than "did this run work". */
 .runs-totals {
@@ -3208,13 +3215,46 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
   margin-top: 0.2rem;
 }
 
+/* Filter controls, sitting directly on top of the table they act on. */
 .runs-filter-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 0.6rem;
+  margin-bottom: 0.5rem;
   flex-wrap: wrap;
+}
+.runs-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.runs-filter-field {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.runs-filter-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #888;
+  font-weight: 600;
+}
+.runs-filter-input {
+  width: 260px;
+  max-width: 100%;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.85rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff;
+}
+.runs-filter-input:focus {
+  outline: none;
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(15, 113, 115, 0.15);
 }
 .runs-toggle {
   display: flex;
@@ -3225,10 +3265,37 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
   cursor: pointer;
 }
 .runs-toggle input { cursor: pointer; }
-.runs-filter-count { font-size: 0.8rem; color: #888; }
+.runs-filter-clear {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.8rem;
+  color: var(--teal);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* What the table is doing right now, in words. The sort arrow alone lives
+   inside one header cell, which is not where anyone looks for it. */
+.runs-state-bar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.4rem 0.1rem;
+  font-size: 0.8rem;
+  color: #666;
+  border-top: 1px solid #ededed;
+}
+.runs-state-sort strong { color: #333; }
+.runs-state-hint { color: #999; }
+.runs-state-count { color: #888; white-space: nowrap; }
 
 /* The header cell is a control, so the button -- not the th -- carries the
-   padding, and the whole cell stays clickable while becoming focusable. */
+   padding, and the whole cell stays clickable while becoming focusable.
+   It also has to LOOK like a control: inheriting font and colour with a #bbb
+   arrow made ten sortable columns indistinguishable from static text. */
 .runs-table .th-sortable { padding: 0; }
 .runs-table .th-sort-btn {
   display: block;
@@ -3236,6 +3303,7 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
   padding: 0.6rem 0.9rem;
   background: none;
   border: none;
+  border-bottom: 2px solid transparent;
   font: inherit;
   color: inherit;
   text-transform: inherit;
@@ -3243,12 +3311,33 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
   text-align: left;
   cursor: pointer;
   white-space: nowrap;
+  transition: color 0.12s, background 0.12s;
+}
+.runs-table .th-sort-btn:hover {
+  color: var(--teal);
+  background: #eef5f5;
+}
+.runs-table .th-sort-btn:hover .sort-icon.inactive { color: var(--teal); }
+.runs-table .th-sort-btn.active {
+  color: var(--teal);
+  border-bottom-color: var(--teal);
 }
 .runs-table .th-sort-btn:focus-visible {
   outline: 2px solid var(--teal);
   outline-offset: -2px;
 }
 .runs-table .th-num .th-sort-btn { text-align: right; }
+/* Dark enough to read as "this does something" against the grey header. */
+.runs-table .sort-icon.inactive { color: #9a9a9a; }
+
+.runs-method {
+  font-size: 0.8rem;
+  color: #555;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .runs-table td { vertical-align: middle; }
 .runs-table .td-num {
@@ -3300,8 +3389,11 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
 .runs-table .v-none,  .runs-total-value.v-none  { color: #b91c1c; font-weight: 600; }
 
 @media (max-width: 767px) {
-  .runs-table { min-width: 820px; }
-  .run-search-form { max-width: none; }
+  /* Wider now that Method is a column; the wrap scrolls horizontally. */
+  .runs-table { min-width: 960px; }
+  .runs-filter-group { width: 100%; }
+  .runs-filter-field { flex: 1; }
+  .runs-filter-input { width: 100%; }
 }
 
 /* ── Export menu ───────────────────────────────────────────────────────────

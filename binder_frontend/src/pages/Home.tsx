@@ -55,7 +55,7 @@ export default function Home() {
           className="hero-browse-btn"
           onClick={() => navigate("/proteins")}
         >
-          Browse all proteins →
+          Browse all targets →
         </button>
 
         {stats && (

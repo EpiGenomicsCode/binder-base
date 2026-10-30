@@ -25,7 +25,7 @@ export default function Footer() {
         <div className="footer-col">
           <h4 className="footer-col-heading">Data</h4>
           <ul className="footer-links">
-            <li><Link to="/proteins">Browse Proteins</Link></li>
+            <li><Link to="/proteins">Targets</Link></li>
             <li><Link to="/runs">Design Runs</Link></li>
             <li><a href="/api/docs" target="_blank" rel="noreferrer">API Documentation</a></li>
           </ul>
