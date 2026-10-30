@@ -13,6 +13,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
+from binderbase import structure
 from binderbase.metrics import promoted
 from binderbase.models import Binder, BinderRun, Protein
 
@@ -321,59 +322,46 @@ def get_or_create_protein(uniprot_id):
     return protein, True
 
 
-def _parse_cif_sequence(cif_path):
-    """Extract target sequence from a BinderRun CIF file (_entity_poly section)."""
+# Moved to binderbase.structure, which is also where the B-factor constraint
+# reading lives: both parse the same file, and keeping one CIF reader means
+# the importer and the backfill cannot disagree about what it says.
+_parse_cif_sequence = structure.sequence_from_cif
+
+
+# Metadata keys, named as make_meta_json writes them. The API reads them back
+# by these names, so they are not free to drift.
+KEY_HOTSPOT = "Hotspot residues"
+KEY_MASKED = "Masked cut faces"
+KEY_PATCH_N = "Binding patch residues"
+KEY_SOURCE = "Hotspot source"
+
+RECOVERED_NOTE = (
+    "Recovered from the target structure's B_iso_or_equiv column during import, "
+    "because meta.json did not record it."
+)
+
+
+def _fill_constraints_from_structure(metadata, cif_path):
+    """Add the epitope to `metadata` if the file has one and meta.json did not.
+
+    Only ever fills gaps: a value from meta.json is authoritative and is left
+    exactly as written. A target with no unconstrained residue declares no
+    epitope, so nothing is inferred from it -- check_runs reports that case.
+    """
+    if metadata.get(KEY_HOTSPOT):
+        return
     try:
-        with open(cif_path) as f:
-            text = f.read()
-    except OSError:
-        return None
-
-    for key in [
-        "_entity_poly.pdbx_seq_one_letter_code_can",
-        "_entity_poly.pdbx_seq_one_letter_code",
-    ]:
-        # Semicolon-delimited multi-line value (non-loop format)
-        m = re.search(re.escape(key) + r"\s*\n;([\s\S]*?)\n;", text, re.IGNORECASE)
-        if m:
-            seq = re.sub(r"\s+", "", m.group(1)).upper()
-            if seq:
-                return seq
-
-        # Single-line key-value (non-loop format) — use [ \t]+ to avoid crossing newlines
-        m = re.search(r"^" + re.escape(key) + r"[ \t]+(\S+)", text, re.IGNORECASE | re.MULTILINE)
-        if m and m.group(1) not in (".", "?") and not m.group(1).startswith("_"):
-            seq = m.group(1).strip("'\"").upper()
-            if seq:
-                return seq
-
-        # Loop format: key appears as a column definition line
-        lines = text.split("\n")
-        key_lower = key.lower()
-        for key_idx, line in enumerate(lines):
-            if line.strip().lower() != key_lower:
-                continue
-            # Count preceding consecutive _field lines to determine column index
-            col_idx = 0
-            back = key_idx - 1
-            while back >= 0 and lines[back].strip().startswith("_"):
-                col_idx += 1
-                back -= 1
-            # Skip to the first data row
-            data_idx = key_idx + 1
-            while data_idx < len(lines) and lines[data_idx].strip().startswith("_"):
-                data_idx += 1
-            while data_idx < len(lines) and not lines[data_idx].strip():
-                data_idx += 1
-            if data_idx >= len(lines):
-                continue
-            tokens = lines[data_idx].strip().split()
-            if col_idx < len(tokens):
-                seq = tokens[col_idx].upper()
-                if seq and seq not in (".", "?"):
-                    return seq
-
-    return None
+        found = structure.constraints_from_cif(cif_path)
+    except (OSError, ValueError):
+        return
+    hotspot = found[structure.HOTSPOT]
+    if not hotspot or len(hotspot) == found["total"]:
+        return
+    metadata[KEY_HOTSPOT] = structure.to_ranges(hotspot)
+    metadata.setdefault(KEY_PATCH_N, len(hotspot))
+    metadata.setdefault(KEY_SOURCE, RECOVERED_NOTE)
+    if found[structure.MASKED]:
+        metadata.setdefault(KEY_MASKED, structure.to_ranges(found[structure.MASKED]))
 
 
 class Command(BaseCommand):
@@ -477,6 +465,12 @@ class Command(BaseCommand):
                 else None
             )
             target_sequence = _parse_cif_sequence(root_cif_files[0]) if root_cif_files else None
+            # The structure carries the binding spec in its B-factor column,
+            # so a run whose meta.json omits the epitope still gets one. This
+            # is why the 66 pre-meta.json runs needed a backfill at all: the
+            # file was open right here and nothing read it.
+            if root_cif_files:
+                _fill_constraints_from_structure(metadata, root_cif_files[0])
 
             if not Protein.objects.filter(uniprot_id=uniprot_id).exists():
                 self.stdout.write(f"Fetching AlphaFold data for: {uniprot_id} ...")

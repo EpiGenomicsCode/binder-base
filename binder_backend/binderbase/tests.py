@@ -21,6 +21,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 
+from binderbase import structure
 from binderbase.models import Binder, BinderRun, Protein
 
 # ---------------------------------------------------------------------------
@@ -847,3 +848,497 @@ class ExportTestCase(TestCase):
         self.assertNotIn("\r", disposition)
         self.assertNotIn('ev"il', disposition)
         self.assertIsNone(resp.get("X-Injected"))
+
+
+# ---------------------------------------------------------------------------
+# binderbase.structure -- reading facts back out of a target CIF
+# ---------------------------------------------------------------------------
+
+_CIF_HEADER = """data_model
+_entry.id model
+
+loop_
+_atom_site.group_PDB
+_atom_site.id
+_atom_site.type_symbol
+_atom_site.label_atom_id
+_atom_site.label_alt_id
+_atom_site.label_comp_id
+_atom_site.label_asym_id
+_atom_site.label_entity_id
+_atom_site.label_seq_id
+_atom_site.pdbx_PDB_ins_code
+_atom_site.Cartn_x
+_atom_site.Cartn_y
+_atom_site.Cartn_z
+_atom_site.occupancy
+_atom_site.B_iso_or_equiv
+_atom_site.pdbx_formal_charge
+_atom_site.auth_seq_id
+_atom_site.auth_asym_id
+_atom_site.pdbx_PDB_model_num
+"""
+
+
+def _write_cif(path, b_by_residue, atoms=("N", "CA", "C"), seq=None):
+    """A minimal but structurally real atom_site loop.
+
+    Columns are emitted in BoltzGen's order because the parser reads by
+    position within the declared loop, not from a fixed layout.
+    """
+    lines = []
+    if seq is not None:
+        lines.append("_entity_poly.pdbx_seq_one_letter_code_can\n;" + seq + "\n;\n")
+    lines.append(_CIF_HEADER)
+    serial = 1
+    for resi in sorted(b_by_residue):
+        for atom in atoms:
+            lines.append(
+                f"ATOM {serial} C {atom} . ALA A 1 {resi} ? "
+                f"0.0 0.0 0.0 1 {b_by_residue[resi]} ? {resi} A 1"
+            )
+            serial += 1
+    lines.append("#")
+    with open(path, "w") as handle:
+        handle.write("\n".join(lines) + "\n")
+
+
+class StructureTestCase(TestCase):
+    """The B-factor encoding and the range grammar.
+
+    These have no database and no command around them on purpose: everything
+    below is a pure function, and it is the one place that decides what a
+    B-factor of 80 means.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _cif(self, b_by_residue, **kwargs):
+        path = os.path.join(self.tmp, "t.cif")
+        _write_cif(path, b_by_residue, **kwargs)
+        return path
+
+    # -- classification ------------------------------------------------------
+
+    def test_classify_b_bands(self):
+        self.assertEqual(structure.classify_b(0), structure.UNCONSTRAINED)
+        self.assertEqual(structure.classify_b(-1), structure.UNCONSTRAINED)
+        self.assertEqual(structure.classify_b(80), structure.HOTSPOT)
+        self.assertEqual(structure.classify_b(100), structure.HOTSPOT)
+        self.assertEqual(structure.classify_b(119.9), structure.HOTSPOT)
+        self.assertEqual(structure.classify_b(120), structure.MASKED)
+        self.assertEqual(structure.classify_b(160), structure.MASKED)
+
+    def test_a_structure_prep_target_never_reaches_the_masked_band(self):
+        """Structure Prep writes hotspot_score * 100, so it tops out at 100.
+        Classifying against 120 cannot reclassify anything it produced."""
+        self.assertEqual(structure.classify_b(100), structure.HOTSPOT)
+
+    def test_nan_is_unconstrained_not_an_exception(self):
+        self.assertEqual(structure.classify_b(float("nan")), structure.UNCONSTRAINED)
+
+    # -- the range grammar ---------------------------------------------------
+
+    def test_to_ranges_matches_select_patch_syntax(self):
+        self.assertEqual(structure.to_ranges([675, 676, 677, 678]), "675..678")
+        self.assertEqual(structure.to_ranges([141, 243, 244]), "141,243..244")
+        self.assertEqual(structure.to_ranges([7]), "7")
+        self.assertEqual(structure.to_ranges([]), "")
+        self.assertEqual(structure.to_ranges([3, 1, 2, 2]), "1..3")
+
+    def test_parse_ranges_reads_both_syntaxes(self):
+        """'..' is current; a bare hyphen is what pre-select_patch runs wrote,
+        and both are still in the database."""
+        self.assertEqual(structure.parse_ranges("1..3,7"), [1, 2, 3, 7])
+        self.assertEqual(structure.parse_ranges("656-741"), list(range(656, 742)))
+        self.assertEqual(structure.parse_ranges("5"), [5])
+        self.assertEqual(structure.parse_ranges(""), [])
+        self.assertEqual(structure.parse_ranges(None), [])
+
+    def test_parse_ranges_skips_a_bad_segment_without_losing_the_rest(self):
+        """Metadata is free-form from whatever importer wrote the run; one bad
+        segment must not cost the whole epitope."""
+        self.assertEqual(structure.parse_ranges("1..3,junk,10"), [1, 2, 3, 10])
+
+    def test_the_two_are_inverses(self):
+        for text in ("675..678,700..709,728..733", "141,243..244", "5"):
+            self.assertEqual(
+                structure.to_ranges(structure.parse_ranges(text)), text)
+
+    # -- reading a file ------------------------------------------------------
+
+    def test_recovers_the_epitope_meta_json_already_records(self):
+        """Regression against ground truth.
+
+        Q02763-TEK_HPA073265-20261029 has both values in its meta.json, and
+        the parser reproduces them character for character against the real
+        file. If this drifts, every recovered epitope names the wrong
+        residues -- silently, because nothing else cross-checks it.
+        """
+        b = {}
+        for lo, hi in [(577, 579), (589, 591), (598, 600), (614, 616), (625, 627)]:
+            for r in range(lo, hi + 1):
+                b[r] = 160
+        for lo, hi in [(675, 678), (700, 709), (728, 733)]:
+            for r in range(lo, hi + 1):
+                b[r] = 80
+        for r in list(range(580, 589)) + list(range(628, 675)):
+            b[r] = 0
+        found = structure.constraints_from_cif(self._cif(b))
+        self.assertEqual(structure.to_ranges(found[structure.HOTSPOT]),
+                         "675..678,700..709,728..733")
+        self.assertEqual(structure.to_ranges(found[structure.MASKED]),
+                         "577..579,589..591,598..600,614..616,625..627")
+        self.assertEqual(len(found[structure.HOTSPOT]), 20)
+
+    def test_a_residue_without_a_ca_still_counts(self):
+        """Falling back to the largest B in the residue, rather than dropping
+        it, keeps the epitope from silently shrinking."""
+        path = os.path.join(self.tmp, "noca.cif")
+        _write_cif(path, {1: 80, 2: 80}, atoms=("N", "C"))
+        found = structure.constraints_from_cif(path)
+        self.assertEqual(found["total"], 2)
+        self.assertEqual(found[structure.HOTSPOT], [1, 2])
+
+    def test_sequence_from_cif_reads_the_semicolon_block(self):
+        """Moved out of import_run, where it had no test at all."""
+        path = self._cif({1: 0}, seq="MKVLA")
+        self.assertEqual(structure.sequence_from_cif(path), "MKVLA")
+
+    def test_sequence_from_cif_returns_none_for_a_missing_file(self):
+        self.assertIsNone(
+            structure.sequence_from_cif(os.path.join(self.tmp, "nope.cif")))
+
+
+# ---------------------------------------------------------------------------
+# RunUpdateCommand subclasses
+# ---------------------------------------------------------------------------
+
+class _RunCommandMixin:
+    """A run with a target structure under a throwaway MEDIA_ROOT."""
+
+    def setUp(self):
+        self.media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media, ignore_errors=True)
+        os.makedirs(os.path.join(self.media, "runs", "r1"))
+        self.protein = Protein.objects.create(
+            uniprot_id="Q02763", gene_name="TEK", sequence="A" * 1124, length=1124)
+
+    def _make_run(self, b_by_residue, metadata=None,
+                  algorithm="F1model_v6_trimmed", target_sequence=None,
+                  folder="r1"):
+        os.makedirs(os.path.join(self.media, "runs", folder), exist_ok=True)
+        rel = f"runs/{folder}/target.cif"
+        _write_cif(os.path.join(self.media, rel), b_by_residue)
+        return BinderRun.objects.create(
+            protein=self.protein,
+            algorithm=algorithm,
+            run_dir=f"runs/{folder}",
+            cif_path=rel,
+            target_sequence=target_sequence,
+            metadata=metadata if metadata is not None else {},
+        )
+
+    def _call(self, command, **kwargs):
+        out = io.StringIO()
+        with override_settings(MEDIA_ROOT=self.media):
+            call_command(command, stdout=out, stderr=out, **kwargs)
+        return out.getvalue()
+
+    @staticmethod
+    def _patch(lo, hi, span=60):
+        return {r: (80 if lo <= r <= hi else 0) for r in range(1, span)}
+
+
+class BackfillRunMetadataTestCase(_RunCommandMixin, TestCase):
+    """backfill_run_metadata --source constraints | patch-size."""
+
+    def test_constraints_recover_a_missing_epitope(self):
+        run = self._make_run(self._patch(10, 17))
+        self._call("backfill_run_metadata", source="constraints")
+        run.refresh_from_db()
+        self.assertEqual(run.metadata["Hotspot residues"], "10..17")
+        self.assertEqual(run.metadata["Binding patch residues"], 8)
+
+    def test_a_recovered_epitope_says_it_was_reconstructed(self):
+        """It must not be indistinguishable from one the run declared."""
+        run = self._make_run(self._patch(10, 17))
+        self._call("backfill_run_metadata", source="constraints")
+        run.refresh_from_db()
+        self.assertIn("Recovered from the target structure",
+                      run.metadata["Hotspot source"])
+
+    def test_the_recovered_epitope_reaches_the_runs_index(self):
+        """The point of the whole exercise: a blank Epitope cell fills in."""
+        self._make_run(self._patch(10, 17))
+        self.assertIsNone(Client().get("/api/runs").json()["items"][0]["epitope"])
+        self._call("backfill_run_metadata", source="constraints")
+        row = Client().get("/api/runs").json()["items"][0]
+        self.assertEqual(row["epitope"], "10..17")
+        self.assertEqual(row["epitope_residues"], 8)
+
+    def test_masked_crop_faces_are_recorded_separately(self):
+        b = self._patch(10, 17)
+        for r in range(40, 43):
+            b[r] = 160
+        run = self._make_run(b)
+        self._call("backfill_run_metadata", source="constraints")
+        run.refresh_from_db()
+        self.assertEqual(run.metadata["Hotspot residues"], "10..17")
+        self.assertEqual(run.metadata["Masked cut faces"], "40..42")
+
+    def test_an_existing_epitope_is_kept(self):
+        """Safe to run across every run, including the 102 with real
+        provenance, without --force."""
+        run = self._make_run(self._patch(10, 17),
+                             metadata={"Hotspot residues": "1..5",
+                                       "Binding patch residues": 5})
+        self._call("backfill_run_metadata", source="constraints")
+        run.refresh_from_db()
+        self.assertEqual(run.metadata["Hotspot residues"], "1..5")
+
+    def test_force_overwrites_an_existing_epitope(self):
+        run = self._make_run(self._patch(10, 17),
+                             metadata={"Hotspot residues": "1..5",
+                                       "Binding patch residues": 5})
+        self._call("backfill_run_metadata", source="constraints", force=True)
+        run.refresh_from_db()
+        self.assertEqual(run.metadata["Hotspot residues"], "10..17")
+
+    def test_constraints_still_fill_a_missing_size_for_a_recorded_epitope(self):
+        """Whole-PrEST runs record the epitope but not its size, which is why
+        half the runs index shows a blank residue count."""
+        run = self._make_run(self._patch(10, 17),
+                             metadata={"Hotspot residues": "10-95"})
+        self._call("backfill_run_metadata", source="constraints")
+        run.refresh_from_db()
+        self.assertEqual(run.metadata["Hotspot residues"], "10-95")
+        self.assertEqual(run.metadata["Binding patch residues"], 86)
+
+    def test_patch_size_needs_no_structure(self):
+        """It derives the count from the epitope string, so it works on a run
+        whose target file is long gone."""
+        run = self._make_run(self._patch(10, 17),
+                             metadata={"Hotspot residues": "656-741"})
+        os.remove(os.path.join(self.media, "runs/r1/target.cif"))
+        self._call("backfill_run_metadata", source="patch-size")
+        run.refresh_from_db()
+        self.assertEqual(run.metadata["Binding patch residues"], 86)
+
+    def test_a_target_with_no_constraints_is_left_alone(self):
+        run = self._make_run({r: 0 for r in range(1, 60)})
+        self._call("backfill_run_metadata", source="constraints")
+        run.refresh_from_db()
+        self.assertNotIn("Hotspot residues", run.metadata)
+
+    def test_a_fully_constrained_target_yields_no_epitope(self):
+        """Every residue binding means there is nothing to recover; inventing
+        '1..59' from it would manufacture an epitope."""
+        run = self._make_run({r: 80 for r in range(1, 60)})
+        self._call("backfill_run_metadata", source="constraints")
+        run.refresh_from_db()
+        self.assertNotIn("Hotspot residues", run.metadata)
+
+    def test_dry_run_writes_nothing(self):
+        run = self._make_run(self._patch(10, 17))
+        output = self._call("backfill_run_metadata", source="constraints",
+                            dry_run=True)
+        run.refresh_from_db()
+        self.assertEqual(run.metadata, {})
+        self.assertIn("10..17", output)
+        self.assertIn("dry run", output)
+
+    def test_a_missing_structure_file_changes_nothing(self):
+        run = self._make_run(self._patch(10, 17))
+        os.remove(os.path.join(self.media, "runs/r1/target.cif"))
+        output = self._call("backfill_run_metadata", source="constraints")
+        run.refresh_from_db()
+        self.assertEqual(run.metadata, {})
+        self.assertIn("missing", output)
+        self.assertIn("failed: 1", output)
+
+
+class RunSelectionTestCase(_RunCommandMixin, TestCase):
+    """The selection flags on RunUpdateCommand, shared by every subclass."""
+
+    def test_algorithm_selects_only_matching_runs(self):
+        target = self._make_run(self._patch(10, 17))
+        other = self._make_run(self._patch(10, 17), algorithm="BlitzGen 1.0.0",
+                               folder="r2")
+        self._call("backfill_run_metadata", source="constraints",
+                   algorithm="F1model_v6_trimmed")
+        target.refresh_from_db()
+        other.refresh_from_db()
+        self.assertIn("Hotspot residues", target.metadata)
+        self.assertEqual(other.metadata, {})
+
+    def test_run_selects_by_directory_basename(self):
+        first = self._make_run(self._patch(10, 17))
+        second = self._make_run(self._patch(20, 27), folder="r2")
+        self._call("backfill_run_metadata", source="constraints", run="r2")
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.metadata, {})
+        self.assertEqual(second.metadata["Hotspot residues"], "20..27")
+
+    def test_protein_selects_by_uniprot(self):
+        run = self._make_run(self._patch(10, 17))
+        self._call("backfill_run_metadata", source="constraints",
+                   protein="q02763")
+        run.refresh_from_db()
+        self.assertIn("Hotspot residues", run.metadata)
+
+    def test_an_empty_selection_is_an_error_not_a_silent_success(self):
+        """Reporting success for a mistyped filter is how a backfill quietly
+        does nothing."""
+        self._make_run(self._patch(10, 17))
+        with self.assertRaises(CommandError):
+            self._call("backfill_run_metadata", source="constraints",
+                       algorithm="does-not-exist")
+
+
+class RelabelRunsTestCase(_RunCommandMixin, TestCase):
+
+    def test_relabel_preserves_the_old_value(self):
+        """F1model_v6_trimmed is a checkpoint, not a method, and it is the only
+        record of which weights produced those designs."""
+        run = self._make_run(self._patch(10, 17))
+        self._call("relabel_runs", algorithm="F1model_v6_trimmed",
+                   set=["algorithm", "BoltzGen v1.0"],
+                   keep_as="Model checkpoint")
+        run.refresh_from_db()
+        self.assertEqual(run.algorithm, "BoltzGen v1.0")
+        self.assertEqual(run.metadata["Model checkpoint"], "F1model_v6_trimmed")
+
+    def test_an_existing_keep_as_key_is_not_overwritten(self):
+        run = self._make_run(self._patch(10, 17),
+                             metadata={"Model checkpoint": "something_real"})
+        self._call("relabel_runs", set=["algorithm", "BoltzGen v1.0"],
+                   keep_as="Model checkpoint")
+        run.refresh_from_db()
+        self.assertEqual(run.metadata["Model checkpoint"], "something_real")
+
+    def test_relabel_without_keep_as_just_sets_the_field(self):
+        run = self._make_run(self._patch(10, 17))
+        self._call("relabel_runs", set=["algorithm", "BoltzGen v1.0"])
+        run.refresh_from_db()
+        self.assertEqual(run.algorithm, "BoltzGen v1.0")
+        self.assertEqual(run.metadata, {})
+
+    def test_a_field_outside_the_allow_list_is_refused(self):
+        """run_dir is unique and anchors the importer; protein moves the run to
+        another page. Neither is a label."""
+        run = self._make_run(self._patch(10, 17))
+        output = self._call("relabel_runs", set=["run_dir", "anything"])
+        run.refresh_from_db()
+        self.assertEqual(run.run_dir, "runs/r1")
+        self.assertIn("not an editable field", output)
+
+    def test_dry_run_writes_nothing(self):
+        run = self._make_run(self._patch(10, 17))
+        self._call("relabel_runs", set=["algorithm", "BoltzGen v1.0"],
+                   dry_run=True)
+        run.refresh_from_db()
+        self.assertEqual(run.algorithm, "F1model_v6_trimmed")
+
+
+class CheckRunsTestCase(_RunCommandMixin, TestCase):
+    """Data-quality reporting. Nothing here deletes or hides a run."""
+
+    def test_a_collapsed_crop_is_reported(self):
+        """Production runs 205, 206 and 211: RPLQ, PPKCP, RKPPPPPLLSPP cropped
+        out of proteins of 136, 110 and 127 residues."""
+        self._make_run({1: 80, 2: 80, 3: 80, 4: 80}, target_sequence="RPLQ")
+        output = self._call("check_runs", check=["crop"])
+        self.assertIn("4 residues", output)
+        self.assertIn("RPLQ", output)
+        self.assertIn("1124-residue protein", output)
+        self.assertIn("runs with problems: 1", output)
+
+    def test_reporting_does_not_write(self):
+        run = self._make_run({1: 80, 2: 80, 3: 80, 4: 80})
+        self._call("check_runs")
+        run.refresh_from_db()
+        self.assertNotIn("Data quality", run.metadata)
+
+    def test_record_writes_the_finding(self):
+        run = self._make_run({1: 80, 2: 80, 3: 80, 4: 80}, target_sequence="RPLQ")
+        self._call("check_runs", check=["crop"], record=True)
+        run.refresh_from_db()
+        self.assertIn("crop collapsed", run.metadata["Data quality"])
+
+    def test_a_fully_constrained_target_is_reported(self):
+        self._make_run({r: 80 for r in range(1, 60)})
+        output = self._call("check_runs", check=["no-epitope"])
+        self.assertIn("marked binding", output)
+
+    def test_an_epitope_past_the_end_of_the_protein_is_reported(self):
+        """Cropped targets keep the full protein's numbering, so this means the
+        run is on the wrong protein or was reindexed."""
+        self._make_run(self._patch(10, 17),
+                       metadata={"Hotspot residues": "2000..2010"})
+        output = self._call("check_runs", check=["epitope-range"])
+        self.assertIn("outside the 1124-residue", output)
+
+    def test_an_epitope_inside_the_protein_is_not_reported(self):
+        self._make_run(self._patch(10, 17),
+                       metadata={"Hotspot residues": "10..17"})
+        output = self._call("check_runs", check=["epitope-range"])
+        self.assertIn("runs with problems: 0", output)
+
+    def test_a_run_with_no_binders_is_reported(self):
+        self._make_run(self._patch(10, 17))
+        output = self._call("check_runs", check=["empty"])
+        self.assertIn("no binders", output)
+
+    def test_a_sequence_disagreeing_with_the_structure_is_reported(self):
+        """Hover-linking between the sequence panel and the 3D view indexes
+        both by residue number, so a mismatch misaligns them."""
+        self._make_run(self._patch(10, 17), target_sequence="SHORT")
+        output = self._call("check_runs", check=["sequence"])
+        self.assertIn("target_sequence is 5 residues", output)
+
+    def test_a_clean_run_reports_nothing(self):
+        run = self._make_run(self._patch(10, 17),
+                             target_sequence="A" * 59,
+                             metadata={"Hotspot residues": "10..17"})
+        # With a binder, because a run without one is itself a finding.
+        Binder.objects.create(run=run, binder_sequence="MKV")
+        output = self._call("check_runs")
+        self.assertIn("runs with problems: 0", output)
+
+
+class ImportRunConstraintsTestCase(TestCase):
+    """import_run derives the epitope while it already has the file open.
+
+    This is why the 66 pre-meta.json runs needed a backfill at all: the
+    structure was read for its sequence and nothing looked at the B-factors.
+    """
+
+    def test_a_run_whose_meta_json_omits_the_epitope_still_gets_one(self):
+        from binderbase.management.commands.import_run import (
+            _fill_constraints_from_structure,
+        )
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        path = os.path.join(tmp, "t.cif")
+        _write_cif(path, {r: (80 if 10 <= r <= 17 else 0) for r in range(1, 60)})
+        metadata = {}
+        _fill_constraints_from_structure(metadata, path)
+        self.assertEqual(metadata["Hotspot residues"], "10..17")
+        self.assertEqual(metadata["Binding patch residues"], 8)
+        self.assertIn("during import", metadata["Hotspot source"])
+
+    def test_a_recorded_epitope_is_authoritative(self):
+        from binderbase.management.commands.import_run import (
+            _fill_constraints_from_structure,
+        )
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        path = os.path.join(tmp, "t.cif")
+        _write_cif(path, {r: (80 if 10 <= r <= 17 else 0) for r in range(1, 60)})
+        metadata = {"Hotspot residues": "1..5"}
+        _fill_constraints_from_structure(metadata, path)
+        self.assertEqual(metadata["Hotspot residues"], "1..5")
