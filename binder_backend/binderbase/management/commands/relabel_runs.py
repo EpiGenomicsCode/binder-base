@@ -1,7 +1,7 @@
 """Bulk-edit a field across a selected set of runs, keeping the old value.
 
     python manage.py relabel_runs --algorithm F1model_v6_trimmed \\
-        --set algorithm "BoltzGen v1.0" --keep-as "Model checkpoint" --dry-run
+        --set algorithm "BoltzGen v1.0" --dry-run
 
 BinderBase's `algorithm` is free text written by whatever produced the run, so
 one method arrives under several spellings -- there are already four in the
@@ -9,10 +9,14 @@ database, and the Method column shows each as a distinct method. Fixing that
 is a recurring edit, not a one-off, which is why it is a command rather than a
 flag on a backfill.
 
---keep-as exists because the value being replaced is often not wrong, just
-misfiled: `F1model_v6_trimmed` is a checkpoint name, not a method, and it is
-the only record of which weights produced those designs. Discarding it to
-tidy a label would lose provenance to gain presentation.
+--keep-as is for when the value being replaced is misfiled rather than wrong,
+and is therefore worth moving somewhere accurate instead of discarding.
+
+It does NOT apply to `F1model_v6_trimmed`, which is simply junk: the target
+structures are AlphaFold DB files named AF-<acc>-F1-model_v6_trimmed.cif, and
+that filename fragment ended up in the run label and from there in `algorithm`.
+It describes the AlphaFold model the target was cropped from, not the design
+algorithm, and nothing reads it. It is dropped.
 """
 from binderbase.management.runcommand import Change, RunUpdateCommand, Skip
 

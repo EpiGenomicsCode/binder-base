@@ -32,6 +32,8 @@ export interface Binder {
 
 export interface BinderRun {
   id: number;
+  /** Public accession, "Q02763-R001". Null when the protein has no UniProt ID. */
+  run_code: string | null;
   algorithm: string | null;
   description: string | null;
   run_datetime: string | null;
@@ -51,6 +53,8 @@ export interface BinderRun {
 export interface RunListRow {
   id: number;
   protein_id: number;
+  /** Public accession, "Q02763-R001". Null when the protein has no UniProt ID. */
+  run_code: string | null;
   uniprot_id: string | null;
   gene_name: string | null;
   algorithm: string | null;

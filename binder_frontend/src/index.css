@@ -3001,6 +3001,22 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
   font-size: 1.25rem;
   margin: 0;
 }
+/* The run's accession in the run page heading. A chip, not more heading
+   text: it is an identifier to copy, not part of the sentence. */
+.pd-run-code {
+  display: inline-block;
+  margin-left: 0.6rem;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid #d8d8d8;
+  border-radius: 5px;
+  background: #f6f6f6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #666;
+  vertical-align: middle;
+}
+
 .pd-uniprot {
   font-family: monospace;
   font-size: 0.85rem;
@@ -3355,8 +3371,27 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
   font-weight: 400;
 }
 
-.runs-gene-link { font-weight: 600; }
-.runs-uniprot { font-family: monospace; font-size: 0.82rem; }
+/* The run's accession. Monospace because it is an identifier people compare
+   character by character, and tabular so the R-numbers line up down the
+   column. */
+.runs-code-link {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Gene over accession: the gene is what people scan for, the accession is
+   what disambiguates it. */
+.runs-target-link { display: inline-block; line-height: 1.25; }
+.runs-target-gene { display: block; font-weight: 600; }
+.runs-target-acc {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  color: #999;
+}
+.runs-table a.runs-target-link:hover .runs-target-acc { color: var(--teal); }
 
 .runs-epitope {
   font-family: monospace;

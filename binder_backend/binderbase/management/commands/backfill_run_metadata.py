@@ -14,8 +14,9 @@ every run, including the ones with real provenance.
 """
 import os
 
-from binderbase import structure
+from binderbase import accessions, structure
 from binderbase.management.runcommand import Change, RunUpdateCommand, Skip
+from binderbase.models import BinderRun
 
 # Metadata keys, named exactly as make_meta_json writes them: RunListSchema and
 # the run page read them back by these names.
@@ -39,6 +40,12 @@ class Source:
 
     def derive(self, run, options):
         raise NotImplementedError
+
+    def order_runs(self, runs):
+        """Hook for a source whose result depends on the order runs are
+        visited. Only run-code does; everything else is order-independent and
+        gets the selection as it comes."""
+        return runs
 
 
 def _target_constraints(run):
@@ -122,7 +129,38 @@ class PatchSizeSource(Source):
                      note=f'{len(residues)} (size of the recorded "{epitope}")')
 
 
-SOURCES = {s.name: s for s in (ConstraintsSource(), PatchSizeSource())}
+class RunCodeSource(Source):
+    """The run's public accession, for runs imported before it existed.
+
+    Ordered by run_datetime so the existing corpus numbers chronologically:
+    Q02763-R001 is the earlier TEK run and -R002 the later one. After this
+    pass, codes come from import_run and ordering never enters into it again
+    -- which is the point. An accession that could be recomputed is not one.
+    """
+
+    name = "run-code"
+    help = "stable public accession, e.g. Q02763-R001"
+
+    def derive(self, run, options):
+        if run.run_code and not options.get("force"):
+            raise Skip()
+        uniprot_id = run.protein.uniprot_id
+        if not uniprot_id:
+            raise Skip("protein has no UniProt ID to build an accession from")
+        code = accessions.next_run_code(BinderRun, uniprot_id, exclude_pk=run.pk)
+        if not code:
+            raise Skip("could not build an accession")
+        yield Change("run_code", code)
+
+    def order_runs(self, runs):
+        # Chronological, with undated runs last and the primary key breaking
+        # ties, so a re-run over the same corpus assigns the same codes.
+        return sorted(
+            runs, key=lambda r: (r.run_datetime is None, r.run_datetime, r.pk))
+
+
+SOURCES = {s.name: s
+           for s in (ConstraintsSource(), PatchSizeSource(), RunCodeSource())}
 
 
 class Command(RunUpdateCommand):
@@ -137,6 +175,10 @@ class Command(RunUpdateCommand):
         parser.add_argument(
             "--source", required=True, choices=sorted(SOURCES),
             help="Which derivation to run.")
+
+    def select_runs(self, options):
+        runs = super().select_runs(options)
+        return SOURCES[options["source"]].order_runs(runs)
 
     def derive(self, run, options):
         return SOURCES[options["source"]].derive(run, options)

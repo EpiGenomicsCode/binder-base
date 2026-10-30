@@ -210,3 +210,4 @@ def sequence_from_cif(path):
                     return seq
 
     return None
+

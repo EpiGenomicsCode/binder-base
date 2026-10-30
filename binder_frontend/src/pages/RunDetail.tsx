@@ -119,14 +119,17 @@ export default function RunDetailPage() {
     <div className="pd-page run-page">
       <div className="pd-header">
         <div className="pd-breadcrumb">
-          <Link to="/proteins">Proteins</Link>
+          <Link to="/proteins">Targets</Link>
           <span className="crumb-sep">/</span>
           <Link to={`/proteins/${p.id}`}>{geneLabel}</Link>
           <span className="crumb-sep">/</span>
-          <span>Run #{summary.run_id}</span>
+          <span>{run?.run_code ?? `Run #${summary.run_id}`}</span>
         </div>
         <h1 className="pd-title">
           {geneLabel} <span className="pd-uniprot">{p.uniprot_id}</span>
+          {/* The citable identifier, beside the human-readable subject. The
+              heading says what was targeted; this says which run. */}
+          {run?.run_code && <span className="pd-run-code">{run.run_code}</span>}
         </h1>
         <div className="run-target-meta">
           {target.epitope && <span>Epitope <strong>{target.epitope}</strong></span>}

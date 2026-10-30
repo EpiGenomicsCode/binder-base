@@ -13,7 +13,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from binderbase import structure
+from binderbase import accessions, structure
 from binderbase.metrics import promoted
 from binderbase.models import Binder, BinderRun, Protein
 
@@ -486,6 +486,10 @@ class Command(BaseCommand):
 
             run = BinderRun.objects.create(
                 protein=protein,
+                # Assigned here and never again. Computed from the codes
+                # already stored, so two runs imported in the same pass see
+                # each other and a deleted run's code is not handed out twice.
+                run_code=accessions.next_run_code(BinderRun, uniprot_id),
                 run_dir=run_dir_rel,
                 cif_path=run_cif_rel,
                 target_sequence=target_sequence,

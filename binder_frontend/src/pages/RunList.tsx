@@ -24,7 +24,7 @@ import type { RunIndex, RunListRow } from "../types";
  */
 
 type SortKey =
-  | "gene" | "uniprot" | "method" | "epitope" | "designs" | "placement"
+  | "run" | "target" | "method" | "epitope" | "designs" | "placement"
   | "monomer" | "pass" | "iptm" | "best_placement" | "date";
 type SortDir = "asc" | "desc";
 
@@ -36,6 +36,17 @@ function toneFor(rate: number): string {
   if (rate >= 0.05) return "v-good";
   if (rate > 0) return "v-some";
   return "v-none";
+}
+
+/**
+ * What identifies a run in the table.
+ *
+ * The accession when it has one; otherwise the primary key, which always
+ * exists and is at least unambiguous. Never the gene name -- that names the
+ * target, and a target has many runs.
+ */
+function runLabel(r: RunListRow): string {
+  return r.run_code ?? `Run #${r.id}`;
 }
 
 function pct(x: number): string {
@@ -94,10 +105,10 @@ interface Column {
  * links went -- which read as one row with two arbitrary destinations.
  */
 const COLUMNS: Column[] = [
-  { key: "gene", label: "Run", numeric: false, descFirst: false,
-    hint: "Open this design run" },
-  { key: "uniprot", label: "Target", numeric: false, descFirst: false,
-    hint: "Open the target protein" },
+  { key: "run", label: "Run", numeric: false, descFirst: false,
+    hint: "Accession of this design run \u2014 opens the run" },
+  { key: "target", label: "Target", numeric: false, descFirst: false,
+    hint: "Target protein \u2014 opens the protein" },
   { key: "method", label: "Method", numeric: false, descFirst: false,
     hint: "Design algorithm and version" },
   { key: "epitope", label: "Epitope", numeric: false, descFirst: false,
@@ -120,8 +131,11 @@ const COLUMNS: Column[] = [
 
 function compare(a: RunListRow, b: RunListRow, key: SortKey): number {
   switch (key) {
-    case "gene": return cmpStr(a.gene_name, b.gene_name);
-    case "uniprot": return cmpStr(a.uniprot_id, b.uniprot_id);
+    // Accession sorts as text, which groups a target's runs together and
+    // orders them R001, R002 within the group -- the reading order.
+    case "run": return cmpStr(runLabel(a), runLabel(b));
+    case "target": return cmpStr(a.gene_name || a.uniprot_id,
+                                 b.gene_name || b.uniprot_id);
     // The raw string, not shortMethod's: it shares the displayed prefix, so the
     // order is the same, and a null stays "" rather than sorting under "—".
     case "method": return cmpStr(a.algorithm, b.algorithm);
@@ -143,6 +157,7 @@ function compare(a: RunListRow, b: RunListRow, key: SortKey): number {
 function matches(r: RunListRow, q: string): boolean {
   const lq = q.toLowerCase();
   return (
+    (r.run_code ?? "").toLowerCase().includes(lq) ||
     (r.gene_name ?? "").toLowerCase().includes(lq) ||
     (r.uniprot_id ?? "").toLowerCase().includes(lq) ||
     (r.epitope ?? "").toLowerCase().includes(lq) ||
@@ -393,14 +408,24 @@ export default function RunList() {
               <tbody>
                 {visible.map((r) => (
                   <tr key={r.id}>
+                    {/* The run's own accession, not the target's gene name:
+                        one protein carries several runs, so a gene named two
+                        rows at once and will name more as the campaign lands. */}
                     <td>
-                      <Link to={`/runs/${r.id}`} className="runs-gene-link">
-                        {r.gene_name ?? r.uniprot_id ?? `Run #${r.id}`}
+                      <Link to={`/runs/${r.id}`} className="runs-code-link">
+                        {runLabel(r)}
                       </Link>
                     </td>
+                    {/* Gene belongs here -- it is a property of the protein,
+                        not of the run against it. */}
                     <td>
-                      <Link to={`/proteins/${r.protein_id}`} className="runs-uniprot">
-                        {r.uniprot_id ?? "—"}
+                      <Link to={`/proteins/${r.protein_id}`} className="runs-target-link">
+                        <span className="runs-target-gene">
+                          {r.gene_name ?? r.uniprot_id ?? "—"}
+                        </span>
+                        {r.gene_name && r.uniprot_id && (
+                          <span className="runs-target-acc">{r.uniprot_id}</span>
+                        )}
                       </Link>
                     </td>
                     {/* Was fetched for the text filter but never shown. One

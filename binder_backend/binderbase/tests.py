@@ -21,7 +21,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 
-from binderbase import structure
+from binderbase import accessions, structure
 from binderbase.models import Binder, BinderRun, Protein
 
 # ---------------------------------------------------------------------------
@@ -610,7 +610,7 @@ class RunIndexTestCase(TestCase):
                          {"items", "total", "placement_threshold", "monomer_threshold"})
         self.assertEqual(
             set(d["items"][0]),
-            {"id", "protein_id", "uniprot_id", "gene_name", "algorithm",
+            {"id", "protein_id", "run_code", "uniprot_id", "gene_name", "algorithm",
              "run_datetime", "epitope", "epitope_residues", "designs",
              "placement_hits", "monomer_consistent", "passed_filters",
              "placement_rate", "monomer_rate", "pass_rate",
@@ -684,7 +684,8 @@ class ExportTestCase(TestCase):
     def test_csv_header_is_the_stable_contract(self):
         _, rows = self._csv(f"/api/runs/{self.run.id}/binders.csv")
         self.assertEqual(rows[0], [
-            "binder_id", "run_id", "uniprot_id", "gene_name", "final_rank",
+            "binder_id", "run_id", "run_code", "uniprot_id", "gene_name",
+            "final_rank",
             "status", "pass_filters", "binder_length", "binder_sequence",
             "quality_score", "design_to_target_iptm", "min_interaction_pae",
             "bb_target_aligned_rmsd_design", "bb_rmsd_design",
@@ -692,24 +693,31 @@ class ExportTestCase(TestCase):
             "failure_reason", "cif_path"])
 
     def test_csv_carries_run_and_protein_identity_on_every_row(self):
-        """So concatenating a hundred run exports stays self-describing."""
+        """So concatenating a hundred run exports stays self-describing.
+
+        Keyed off the header rather than by position, because this broke the
+        first time a column was inserted ahead of it."""
         _, rows = self._csv(f"/api/runs/{self.run.id}/binders.csv")
+        header = rows[0]
         for row in rows[1:]:
-            self.assertEqual(row[1], str(self.run.id))
-            self.assertEqual(row[2], "P15692")
-            self.assertEqual(row[3], "VEGFA")
+            cell = dict(zip(header, row))
+            self.assertEqual(cell["run_id"], str(self.run.id))
+            self.assertEqual(cell["uniprot_id"], "P15692")
+            self.assertEqual(cell["gene_name"], "VEGFA")
 
     def test_csv_respects_the_status_filter(self):
         _, rows = self._csv(f"/api/runs/{self.run.id}/binders.csv", status="success")
         self.assertEqual(len(rows), 3)
-        self.assertTrue(all(r[5] == "success" for r in rows[1:]))
+        status = rows[0].index("status")
+        self.assertTrue(all(r[status] == "success" for r in rows[1:]))
 
     def test_csv_respects_the_sort_the_table_was_showing(self):
         """A download that came back in a different order than the table the
         user clicked it from is a bug, not a detail."""
         _, rows = self._csv(f"/api/runs/{self.run.id}/binders.csv",
                             sort="rank", sort_dir="desc")
-        self.assertEqual([r[4] for r in rows[1:]], ["5", "4", "3", "2", "1"])
+        rank = rows[0].index("final_rank")
+        self.assertEqual([r[rank] for r in rows[1:]], ["5", "4", "3", "2", "1"])
 
     def test_csv_quotes_a_field_containing_a_comma(self):
         """csv.writer rather than ','.join: a failure reason is free text."""
@@ -717,8 +725,10 @@ class ExportTestCase(TestCase):
             run=self.run, binder_sequence="AAA", final_rank=99,
             failure_reason='clash, severe; "overlap"')
         _, rows = self._csv(f"/api/runs/{self.run.id}/binders.csv")
-        row = next(r for r in rows[1:] if r[4] == "99")
-        self.assertEqual(row[17], 'clash, severe; "overlap"')
+        rank = rows[0].index("final_rank")
+        row = next(r for r in rows[1:] if r[rank] == "99")
+        reason = rows[0].index("failure_reason")
+        self.assertEqual(row[reason], 'clash, severe; "overlap"')
 
     def test_csv_promoted_columns_omit_the_metrics_json(self):
         _, rows = self._csv(f"/api/runs/{self.run.id}/binders.csv")
@@ -1342,3 +1352,108 @@ class ImportRunConstraintsTestCase(TestCase):
         metadata = {"Hotspot residues": "1..5"}
         _fill_constraints_from_structure(metadata, path)
         self.assertEqual(metadata["Hotspot residues"], "1..5")
+
+
+# ---------------------------------------------------------------------------
+# Run accessions
+# ---------------------------------------------------------------------------
+
+class AccessionTestCase(TestCase):
+    """<UniProt>-R<ordinal>, assigned once and never reused."""
+
+    def test_format_and_parse_are_inverses(self):
+        self.assertEqual(accessions.format_run_code("Q02763", 1), "Q02763-R001")
+        self.assertEqual(accessions.format_run_code("Q02763", 42), "Q02763-R042")
+        self.assertEqual(accessions.parse_run_code("Q02763-R001"), ("Q02763", 1))
+
+    def test_the_format_widens_rather_than_wrapping(self):
+        """Past 999 it stops being text-sortable, which is a smaller problem
+        than two runs sharing a code."""
+        self.assertEqual(accessions.format_run_code("Q02763", 1000), "Q02763-R1000")
+        self.assertEqual(accessions.parse_run_code("Q02763-R1000"), ("Q02763", 1000))
+
+    def test_no_uniprot_id_means_no_code(self):
+        """A made-up accession would be worse than none."""
+        self.assertIsNone(accessions.format_run_code(None, 1))
+        self.assertIsNone(accessions.format_run_code("", 1))
+
+    def test_parse_rejects_things_that_are_not_codes(self):
+        for text in ("Q02763", "R001", "", None, "Q02763-R", "Q02763-Rxx"):
+            self.assertIsNone(accessions.parse_run_code(text))
+
+    def test_next_ordinal_takes_the_maximum_not_the_count(self):
+        """Deleting a run must not make the next import reuse its code. A gap
+        is correct and means a run was recorded and later removed."""
+        self.assertEqual(accessions.next_ordinal([]), 1)
+        self.assertEqual(accessions.next_ordinal(["Q1-R001", "Q1-R002"]), 3)
+        self.assertEqual(accessions.next_ordinal(["Q1-R001", "Q1-R007"]), 8)
+        self.assertEqual(accessions.next_ordinal(["junk", None, "Q1-R003"]), 4)
+
+
+class RunCodeAssignmentTestCase(_RunCommandMixin, TestCase):
+
+    def test_the_backfill_numbers_chronologically(self):
+        """For the existing corpus only. After this pass codes come from
+        import_run and ordering never enters into it again."""
+        from django.utils import timezone as tz
+        import datetime
+        later = self._make_run(self._patch(10, 17), folder="r2")
+        later.run_datetime = tz.make_aware(datetime.datetime(2026, 10, 29))
+        later.save()
+        earlier = self._make_run(self._patch(10, 17), folder="r1")
+        earlier.run_datetime = tz.make_aware(datetime.datetime(2026, 10, 23))
+        earlier.save()
+
+        self._call("backfill_run_metadata", source="run-code")
+        earlier.refresh_from_db()
+        later.refresh_from_db()
+        self.assertEqual(earlier.run_code, "Q02763-R001")
+        self.assertEqual(later.run_code, "Q02763-R002")
+
+    def test_an_assigned_code_is_never_changed(self):
+        run = self._make_run(self._patch(10, 17))
+        run.run_code = "Q02763-R007"
+        run.save()
+        self._call("backfill_run_metadata", source="run-code")
+        run.refresh_from_db()
+        self.assertEqual(run.run_code, "Q02763-R007")
+
+    def test_a_new_code_does_not_reuse_a_gap(self):
+        """R001 deleted must not be handed to the next run, or a published
+        accession comes to name a different run."""
+        existing = self._make_run(self._patch(10, 17))
+        existing.run_code = "Q02763-R003"
+        existing.save()
+        fresh = self._make_run(self._patch(10, 17), folder="r2")
+        self._call("backfill_run_metadata", source="run-code")
+        fresh.refresh_from_db()
+        self.assertEqual(fresh.run_code, "Q02763-R004")
+
+    def test_a_protein_without_a_uniprot_id_gets_no_code(self):
+        bare = Protein.objects.create(gene_name="MYSTERY", sequence="AAA")
+        run = BinderRun.objects.create(protein=bare, run_dir="runs/x")
+        output = self._call("backfill_run_metadata", source="run-code")
+        run.refresh_from_db()
+        self.assertIsNone(run.run_code)
+        self.assertIn("no UniProt ID", output)
+
+    def test_the_accession_reaches_the_runs_index_and_the_csv(self):
+        run = self._make_run(self._patch(10, 17))
+        self._call("backfill_run_metadata", source="run-code")
+        run.refresh_from_db()
+        row = Client().get("/api/runs").json()["items"][0]
+        self.assertEqual(row["run_code"], "Q02763-R001")
+        text = Client().get("/api/runs.csv").getvalue().decode()
+        rows = list(csv.reader(io.StringIO(text)))
+        self.assertEqual(dict(zip(rows[0], rows[1]))["run_code"], "Q02763-R001")
+
+    def test_two_runs_imported_in_one_pass_do_not_collide(self):
+        """next_run_code reads stored codes, so the second sees the first."""
+        first = self._make_run(self._patch(10, 17))
+        first.run_code = accessions.next_run_code(BinderRun, "Q02763")
+        first.save()
+        second = self._make_run(self._patch(10, 17), folder="r2")
+        second.run_code = accessions.next_run_code(BinderRun, "Q02763")
+        second.save()
+        self.assertEqual(first.run_code, "Q02763-R001")
+        self.assertEqual(second.run_code, "Q02763-R002")

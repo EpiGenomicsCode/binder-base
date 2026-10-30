@@ -20,6 +20,20 @@ class Protein(models.Model):
 
 class BinderRun(models.Model):
     protein = models.ForeignKey(Protein, on_delete=models.CASCADE)
+    # Citable accession, "Q02763-R001": the target's UniProt ID and the run's
+    # ordinal against that target.
+    #
+    # ASSIGNED, not computed. A number derived from ordering would renumber
+    # every later run of a protein whenever an earlier one is deleted, so a
+    # published "Q02763-R002" would silently come to mean a different run.
+    # Assigned once at import and never reused, like any accession.
+    #
+    # Nullable because a run whose protein has no UniProt ID has nothing to
+    # build one from; the API falls back to the primary key for those.
+    run_code = models.CharField(
+        max_length=64, unique=True, null=True, blank=True,
+        verbose_name="Run accession",
+        help_text="Stable public identifier, e.g. Q02763-R001. Never reused.")
     algorithm = models.CharField(max_length=255, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
     run_datetime = models.DateTimeField(null=True, blank=True)
