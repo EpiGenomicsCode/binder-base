@@ -188,7 +188,13 @@ export default function RunDetailPage() {
 
       {/* 5. The designs */}
       <div className="run-section-title">Binders</div>
-      <BindersTable runId={summary.run_id} />
+      {/* The same ranges the PAE band uses, so the structure view and the
+          per-design complex view cannot disagree about where the epitope is. */}
+      <BindersTable
+        runId={summary.run_id}
+        epitope={parseEpitope(target.epitope)}
+        masked={parseEpitope(target.masked_faces)}
+      />
 
       {/* 6. Provenance, collapsed */}
       {run && (

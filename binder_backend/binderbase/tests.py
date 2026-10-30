@@ -1457,3 +1457,103 @@ class RunCodeAssignmentTestCase(_RunCommandMixin, TestCase):
         second.save()
         self.assertEqual(first.run_code, "Q02763-R001")
         self.assertEqual(second.run_code, "Q02763-R002")
+
+
+# ---------------------------------------------------------------------------
+# Target rollups on /api/proteins
+# ---------------------------------------------------------------------------
+
+class ProteinRollupTestCase(TestCase):
+    """Per-protein aggregates across every run against it.
+
+    The protein -> run -> binder join fans out to one row per binder, which is
+    the trap these exist to pin: without distinct=True the run count comes back
+    multiplied by the design count.
+    """
+
+    def setUp(self):
+        self.protein = Protein.objects.create(
+            uniprot_id="P15692", gene_name="VEGFA", sequence="A" * 232, length=232)
+        self.run_a = BinderRun.objects.create(
+            protein=self.protein, run_dir="runs/a", run_code="P15692-R001")
+        self.run_b = BinderRun.objects.create(
+            protein=self.protein, run_dir="runs/b", run_code="P15692-R002")
+        # run_a: 3 designs, 2 placed under 2 A. run_b: 2 designs, 0 placed.
+        for rmsd, iptm in ((0.5, 0.80), (1.2, 0.70), (9.0, 0.30)):
+            Binder.objects.create(
+                run=self.run_a, binder_sequence="AAA",
+                bb_target_aligned_rmsd_design=rmsd, design_to_target_iptm=iptm)
+        for rmsd, iptm in ((5.0, 0.44), (7.5, 0.55)):
+            Binder.objects.create(
+                run=self.run_b, binder_sequence="CCC",
+                bb_target_aligned_rmsd_design=rmsd, design_to_target_iptm=iptm)
+
+    def _row(self, **params):
+        rows = Client().get("/api/proteins", params).json()
+        return next(r for r in rows if r["uniprot_id"] == "P15692")
+
+    def test_run_count_is_not_multiplied_by_the_design_count(self):
+        """Two runs and five designs. Without distinct=True this reads 5."""
+        self.assertEqual(self._row()["run_count"], 2)
+
+    def test_designs_counts_every_binder_across_every_run(self):
+        self.assertEqual(self._row()["designs"], 5)
+
+    def test_placement_hits_and_rate_pool_across_runs(self):
+        """Pooled, not a mean of per-run rates: a run of 3 and a run of 2 must
+        not weigh the same."""
+        row = self._row()
+        self.assertEqual(row["placement_hits"], 2)
+        self.assertAlmostEqual(row["placement_rate"], 0.4)
+
+    def test_best_values_are_the_best_across_every_run(self):
+        row = self._row()
+        self.assertAlmostEqual(row["best_placement"], 0.5)
+        self.assertAlmostEqual(row["best_iptm"], 0.80)
+
+    def test_the_threshold_is_tunable_and_changes_the_rate(self):
+        # 0.5, 1.2 and 5.0 are under 6.0; 7.5 and 9.0 are not.
+        row = self._row(placement_threshold=6.0)
+        self.assertEqual(row["placement_hits"], 3)
+        self.assertAlmostEqual(row["placement_rate"], 0.6)
+
+    def test_a_protein_with_no_runs_reports_zeros_not_nulls(self):
+        """The column has to render; a null would print as a blank cell that
+        reads like missing data rather than 'nothing was tried'."""
+        Protein.objects.create(uniprot_id="Q00000", sequence="AAA")
+        rows = Client().get("/api/proteins").json()
+        bare = next(r for r in rows if r["uniprot_id"] == "Q00000")
+        self.assertEqual(bare["run_count"], 0)
+        self.assertEqual(bare["designs"], 0)
+        self.assertEqual(bare["placement_hits"], 0)
+        self.assertEqual(bare["placement_rate"], 0.0)
+        self.assertIsNone(bare["best_placement"])
+
+    def test_a_run_with_no_binders_still_counts_as_a_run(self):
+        BinderRun.objects.create(
+            protein=self.protein, run_dir="runs/c", run_code="P15692-R003")
+        row = self._row()
+        self.assertEqual(row["run_count"], 3)
+        self.assertEqual(row["designs"], 5)
+
+    def test_the_rollup_agrees_with_the_runs_index_for_the_same_protein(self):
+        """Two endpoints, two aggregates, one truth. They must not drift."""
+        row = self._row()
+        runs = [r for r in Client().get("/api/runs").json()["items"]
+                if r["uniprot_id"] == "P15692"]
+        self.assertEqual(row["run_count"], len(runs))
+        self.assertEqual(row["designs"], sum(r["designs"] for r in runs))
+        self.assertEqual(row["placement_hits"],
+                         sum(r["placement_hits"] for r in runs))
+        self.assertAlmostEqual(row["best_placement"],
+                               min(r["best_placement"] for r in runs))
+
+    def test_payload_shape_is_the_frontend_contract(self):
+        """Protein in binder_frontend/src/types/index.ts is written against
+        these keys; a rename arrives on the client as undefined."""
+        self.assertEqual(
+            set(self._row()),
+            {"id", "uniprot_id", "gene_name", "protein_name", "organism",
+             "length", "biological_function", "cif_path", "pae_json_path",
+             "run_count", "designs", "placement_hits", "placement_rate",
+             "best_iptm", "best_placement"})

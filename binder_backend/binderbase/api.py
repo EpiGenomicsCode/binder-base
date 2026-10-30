@@ -30,9 +30,24 @@ class ProteinListSchema(Schema):
     cif_path: str | None
     pae_json_path: str | None
 
+    # Rolled up across every run against this protein. The target list
+    # previously answered "what proteins exist", which nobody needs to ask of
+    # a design database; these are what make it answer "which targets worked".
+    run_count: int = 0
+    designs: int = 0
+    placement_hits: int = 0
+    placement_rate: float = 0.0
+    best_iptm: float | None = None
+    best_placement: float | None = None
+
     @staticmethod
     def resolve_cif_path(obj):
         return obj.cif_path.name if obj.cif_path else None
+
+    @staticmethod
+    def resolve_placement_rate(obj):
+        return _rate(getattr(obj, "placement_hits", 0) or 0,
+                     getattr(obj, "designs", 0) or 0)
 
     @staticmethod
     def resolve_pae_json_path(obj):
@@ -241,9 +256,33 @@ def get_stats(request):
     }
 
 
+def protein_index_queryset(placement_threshold=None):
+    """Every protein with its runs rolled up, in one query.
+
+    The counts come off a single protein -> run -> binder join. `runs` needs
+    distinct=True because that join fans out to one row per BINDER, so without
+    it a protein's run count would be multiplied by its design count; the
+    design-level counts need no distinct, since each binder appears once.
+    """
+    threshold = (DEFAULT_PLACEMENT_A if placement_threshold is None
+                 else placement_threshold)
+    return Protein.objects.annotate(
+        run_count=Count("binderrun", distinct=True),
+        designs=Count("binderrun__binder"),
+        placement_hits=Count("binderrun__binder", filter=Q(
+            binderrun__binder__bb_target_aligned_rmsd_design__lt=threshold)),
+        best_iptm=Max("binderrun__binder__design_to_target_iptm"),
+        # An RMSD: "best" is the minimum.
+        best_placement=Min("binderrun__binder__bb_target_aligned_rmsd_design"),
+    ).order_by("uniprot_id", "id")
+
+
 @api.get("/proteins", response=list[ProteinListSchema])
-def list_proteins(request):
-    return Protein.objects.all()
+def list_proteins(request, placement_threshold: float = DEFAULT_PLACEMENT_A):
+    """Unpaged, like the runs index and for the same reason: the aggregate
+    visits every binder whatever slice is returned, so paging would cut
+    transfer without cutting work."""
+    return protein_index_queryset(placement_threshold)
 
 
 @api.get("/proteins/{id}", response=ProteinDetailSchema)

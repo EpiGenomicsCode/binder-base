@@ -20,9 +20,14 @@ import "molstar/build/viewer/molstar.css";
  *  - "confidence": AlphaFold pLDDT bands (B-factor = pLDDT).
  *  - "hotspot":    design constraints from the B-factor column: hotspot,
  *                  masked (a face created by cropping), or unconstrained.
+ *  - "epitope":    the same constraints on a target+binder COMPLEX, driven by
+ *                  residue number rather than B-factor -- a complex reuses its
+ *                  B column for pLDDT, so the spec is not in the file. The
+ *                  ranges come from the run's metadata and land directly on
+ *                  the target chain, which keeps the protein's own numbering.
  *  - "none":       Mol* default coloring, no legend.
  */
-export type CifColoring = "confidence" | "hotspot" | "none";
+export type CifColoring = "confidence" | "hotspot" | "epitope" | "none";
 
 interface Props {
   cifPath: string;
@@ -46,6 +51,16 @@ interface Props {
    * Omit to show the file as it is.
    */
   isolateChainLength?: number | null;
+  /**
+   * For coloring="epitope": the residues the design was asked to bind, in the
+   * TARGET's own numbering. BoltzGen crops with res_reindex=False, so a
+   * complex's target chain keeps the full protein's numbers and these need no
+   * offset. Empty means there is nothing to show and the mode is a no-op.
+   */
+  epitopeRanges?: [number, number][];
+  /** Crop faces, same numbering. Shown grey, so a design sitting on an
+   *  artefact of the crop rather than on real surface is visible. */
+  maskedRanges?: [number, number][];
 }
 
 // AlphaFold model-confidence (pLDDT) bands and colors.
@@ -68,7 +83,13 @@ const CONFIDENCE_LEGEND = [
 const HOTSPOT_COLOR = 0xffe119; // yellow
 const MASKED_COLOR = 0x9a9a9a; // grey
 const NON_HOTSPOT_COLOR = 0x6a3d9a; // deep purple
+// The binder, in the complex view. Cyan from the same distinct-colour palette
+// the three above come from: the opposite hue to the epitope's yellow, and
+// far enough from the purple in LIGHTNESS (L* 78 vs 35) to stay separable
+// under deuteranopia, where both would otherwise shift towards blue.
+const BINDER_COLOR = 0x42d4f4; // cyan
 const HOTSPOT_THEME_NAME = "hotspot-bfactor";
+const EPITOPE_THEME_NAME = "epitope-residues";
 
 const HOTSPOT_LEGEND = [
   { color: "#FFE119", label: "Hotspot — bind here" },
@@ -76,11 +97,28 @@ const HOTSPOT_LEGEND = [
   { color: "#6A3D9A", label: "Unconstrained" },
 ];
 
+const EPITOPE_LEGEND = [
+  { color: "#42D4F4", label: "Binder" },
+  { color: "#FFE119", label: "Epitope — target here" },
+  { color: "#9A9A9A", label: "Masked — crop face" },
+  { color: "#6A3D9A", label: "Target surface" },
+];
+
 const LEGENDS: Record<CifColoring, { title: string; items: typeof CONFIDENCE_LEGEND } | null> = {
   confidence: { title: "Model confidence (pLDDT)", items: CONFIDENCE_LEGEND },
   hotspot: { title: "Design constraints", items: HOTSPOT_LEGEND },
+  epitope: { title: "Did it hit the epitope?", items: EPITOPE_LEGEND },
   none: null,
 };
+
+/** Flatten [[675,678],[700,709]] into a Set for O(1) membership per atom. */
+function residueSet(ranges: [number, number][]): Set<number> {
+  const out = new Set<number>();
+  for (const [lo, hi] of ranges) {
+    for (let r = lo; r <= hi; r++) out.add(r);
+  }
+  return out;
+}
 
 const HOTSPOT_THEME_PROVIDER = {
   name: HOTSPOT_THEME_NAME,
@@ -139,7 +177,15 @@ export default function CifViewer({
   onHoverResidue,
   seqChainLength = null,
   isolateChainLength = null,
+  epitopeRanges = [],
+  maskedRanges = [],
 }: Props) {
+  // Serialised so the effect compares VALUES, not array identity: the parent
+  // passes a fresh literal on every render, which as a dependency would tear
+  // down and rebuild the Mol* viewer each time.
+  const epitopeKey = JSON.stringify(epitopeRanges);
+  const maskedKey = JSON.stringify(maskedRanges);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
   const structureRef = useRef<Structure | null>(null);
@@ -229,9 +275,87 @@ export default function CifViewer({
       chainAsymRef.current =
         structure && seqChainLength ? findChainAsymId(structure, seqChainLength) : null;
 
+      // The epitope theme has to be built AFTER the structure loads, because
+      // it needs to know which chain is the binder. Registered on this
+      // viewer's own plugin, so the two panels of one modal can hold
+      // different epitopes without colliding -- each CifViewer creates its own
+      // Viewer and therefore its own theme registry.
+      if (coloring === "epitope" && structure) {
+        const epitope = residueSet(epitopeRanges);
+        const masked = residueSet(maskedRanges);
+        // seqChainLength is the binder's length, which is how the complex's
+        // two chains are told apart everywhere else in this component.
+        const binderAsym = seqChainLength
+          ? findChainAsymId(structure, seqChainLength)
+          : null;
+
+        const stateAt = (loc: StructureElement.Location) => {
+          if (binderAsym &&
+              StructureProperties.chain.label_asym_id(loc) === binderAsym) {
+            return "binder" as const;
+          }
+          const resi = StructureProperties.residue.auth_seq_id(loc);
+          if (epitope.has(resi)) return "epitope" as const;
+          if (masked.has(resi)) return "masked" as const;
+          return "target" as const;
+        };
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const registry = (plugin as any).representation.structure.themes.colorThemeRegistry;
+        registry.add({
+          name: EPITOPE_THEME_NAME,
+          label: "Epitope (residue number)",
+          category: "Custom",
+          isApplicable: () => true,
+          defaultValues: {},
+          getParams: () => ({}),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          factory: (_ctx: any, _props: any) => ({
+            granularity: "group",
+            color: (location: Location) => {
+              if (!StructureElement.Location.is(location)) {
+                return Color(NON_HOTSPOT_COLOR);
+              }
+              switch (stateAt(location)) {
+                case "binder": return Color(BINDER_COLOR);
+                case "epitope": return Color(HOTSPOT_COLOR);
+                case "masked": return Color(MASKED_COLOR);
+                default: return Color(NON_HOTSPOT_COLOR);
+              }
+            },
+            props: {},
+          }),
+        });
+
+        // The complex reuses ma_qa_metric for pLDDT, which is true here but
+        // not what this view is about, so the tooltip answers the question the
+        // colouring is asking instead.
+        await plugin.state.updateBehavior(MAQualityAssessment, (pp) => {
+          pp.showTooltip = false;
+        });
+        plugin.managers.lociLabels.addProvider({
+          label: (loci: Loci) => {
+            if (!StructureElement.Loci.is(loci) || StructureElement.Loci.isEmpty(loci)) return;
+            const loc = StructureElement.Loci.getFirstLocation(loci);
+            if (!loc) return;
+            switch (stateAt(loc)) {
+              case "binder": return "Binder";
+              case "epitope":
+                return `Epitope residue ${StructureProperties.residue.auth_seq_id(loc)}`;
+              case "masked": return "Masked — face created by cropping";
+              default:
+                return `Target residue ${StructureProperties.residue.auth_seq_id(loc)}`;
+            }
+          },
+        });
+      }
+
       // Apply the theme the legend describes, so the two always agree.
       if (coloring !== "none") {
-        const themeName = coloring === "hotspot" ? HOTSPOT_THEME_NAME : "plddt-confidence";
+        const themeName =
+          coloring === "hotspot" ? HOTSPOT_THEME_NAME
+          : coloring === "epitope" ? EPITOPE_THEME_NAME
+          : "plddt-confidence";
         try {
           for (const s of plugin.managers.structure.hierarchy.current.structures) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -276,7 +400,8 @@ export default function CifViewer({
       structureRef.current = null;
       chainAsymRef.current = null;
     };
-  }, [cifPath, coloring, seqChainLength, isolateChainLength]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cifPath, coloring, seqChainLength, isolateChainLength, epitopeKey, maskedKey]);
 
   // Highlight a residue in the 3D view when the linked sequence is hovered.
   useEffect(() => {
