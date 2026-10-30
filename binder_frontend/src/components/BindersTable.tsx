@@ -8,11 +8,20 @@ import { LinkedSequenceBlock, statusClass } from "./SequenceBlock";
 interface BinderModalProps {
   binder: Binder;
   onClose: () => void;
+  /** The run's epitope and crop faces, in the target's numbering. */
+  epitope?: [number, number][];
+  masked?: [number, number][];
 }
 
-function BinderModal({ binder, onClose }: BinderModalProps) {
+function BinderModal({ binder, onClose, epitope = [], masked = [] }: BinderModalProps) {
   const [copied, setCopied] = useState(false);
   const [hoverResno, setHoverResno] = useState<number | null>(null);
+  // The complex panel answers one of two questions: how confident is the model
+  // (pLDDT), or did the binder land on the patch it was aimed at. They need
+  // different colourings and cannot be shown at once, so they are a toggle.
+  const [complexColoring, setComplexColoring] =
+    useState<"confidence" | "epitope">("confidence");
+  const canShowEpitope = epitope.length > 0;
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -85,14 +94,37 @@ function BinderModal({ binder, onClose }: BinderModalProps) {
               seqChainLength={binderLength}
               isolateChainLength={binderLength}
             />
-            <CifViewer
-              cifPath={binder.cif_path}
-              label="Target + Binder"
-              coloring="confidence"
-              highlightResidue={hoverResno}
-              onHoverResidue={setHoverResno}
-              seqChainLength={binderLength}
-            />
+            <div className="cif-panel">
+              {canShowEpitope && (
+                <div className="cif-coloring-toggle" role="group"
+                     aria-label="Target + Binder colouring">
+                  {([
+                    ["confidence", "pLDDT"],
+                    ["epitope", "Epitope"],
+                  ] as const).map(([mode, text]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      className={`cif-coloring-btn${complexColoring === mode ? " active" : ""}`}
+                      aria-pressed={complexColoring === mode}
+                      onClick={() => setComplexColoring(mode)}
+                    >
+                      {text}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <CifViewer
+                cifPath={binder.cif_path}
+                label="Target + Binder"
+                coloring={canShowEpitope ? complexColoring : "confidence"}
+                highlightResidue={hoverResno}
+                onHoverResidue={setHoverResno}
+                seqChainLength={binderLength}
+                epitopeRanges={epitope}
+                maskedRanges={masked}
+              />
+            </div>
           </div>
         ) : (
           <p className="cif-modal-empty">No CIF files available for this binder.</p>
@@ -169,7 +201,15 @@ function exportUrl(runId: number, file: string, query: string): string {
   return `/api/runs/${runId}/${file}?${query}`;
 }
 
-export default function BindersTable({ runId }: { runId: number }) {
+export default function BindersTable({
+  runId,
+  epitope = [],
+  masked = [],
+}: {
+  runId: number;
+  epitope?: [number, number][];
+  masked?: [number, number][];
+}) {
   const [selectedBinder, setSelectedBinder] = useState<Binder | null>(null);
   const [sortKey, setSortKey] = useState<BinderSortKey>("rank");
   const [sortDir, setSortDir] = useState<BinderSortDir>("asc");
@@ -467,6 +507,8 @@ export default function BindersTable({ runId }: { runId: number }) {
         <BinderModal
           binder={selectedBinder}
           onClose={() => setSelectedBinder(null)}
+          epitope={epitope}
+          masked={masked}
         />
       )}
     </>

@@ -119,14 +119,17 @@ export default function RunDetailPage() {
     <div className="pd-page run-page">
       <div className="pd-header">
         <div className="pd-breadcrumb">
-          <Link to="/proteins">Proteins</Link>
+          <Link to="/proteins">Targets</Link>
           <span className="crumb-sep">/</span>
           <Link to={`/proteins/${p.id}`}>{geneLabel}</Link>
           <span className="crumb-sep">/</span>
-          <span>Run #{summary.run_id}</span>
+          <span>{run?.run_code ?? `Run #${summary.run_id}`}</span>
         </div>
         <h1 className="pd-title">
           {geneLabel} <span className="pd-uniprot">{p.uniprot_id}</span>
+          {/* The citable identifier, beside the human-readable subject. The
+              heading says what was targeted; this says which run. */}
+          {run?.run_code && <span className="pd-run-code">{run.run_code}</span>}
         </h1>
         <div className="run-target-meta">
           {target.epitope && <span>Epitope <strong>{target.epitope}</strong></span>}
@@ -185,7 +188,13 @@ export default function RunDetailPage() {
 
       {/* 5. The designs */}
       <div className="run-section-title">Binders</div>
-      <BindersTable runId={summary.run_id} />
+      {/* The same ranges the PAE band uses, so the structure view and the
+          per-design complex view cannot disagree about where the epitope is. */}
+      <BindersTable
+        runId={summary.run_id}
+        epitope={parseEpitope(target.epitope)}
+        masked={parseEpitope(target.masked_faces)}
+      />
 
       {/* 6. Provenance, collapsed */}
       {run && (

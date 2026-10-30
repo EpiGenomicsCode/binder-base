@@ -30,9 +30,24 @@ class ProteinListSchema(Schema):
     cif_path: str | None
     pae_json_path: str | None
 
+    # Rolled up across every run against this protein. The target list
+    # previously answered "what proteins exist", which nobody needs to ask of
+    # a design database; these are what make it answer "which targets worked".
+    run_count: int = 0
+    designs: int = 0
+    placement_hits: int = 0
+    placement_rate: float = 0.0
+    best_iptm: float | None = None
+    best_placement: float | None = None
+
     @staticmethod
     def resolve_cif_path(obj):
         return obj.cif_path.name if obj.cif_path else None
+
+    @staticmethod
+    def resolve_placement_rate(obj):
+        return _rate(getattr(obj, "placement_hits", 0) or 0,
+                     getattr(obj, "designs", 0) or 0)
 
     @staticmethod
     def resolve_pae_json_path(obj):
@@ -67,6 +82,7 @@ class BinderSchema(Schema):
 
 class BinderRunSchema(Schema):
     id: int
+    run_code: str | None
     algorithm: str | None
     description: str | None
     run_datetime: datetime | None
@@ -133,6 +149,7 @@ class RunListSchema(Schema):
     """
     id: int
     protein_id: int
+    run_code: str | None
     uniprot_id: str | None
     gene_name: str | None
     algorithm: str | None
@@ -239,9 +256,33 @@ def get_stats(request):
     }
 
 
+def protein_index_queryset(placement_threshold=None):
+    """Every protein with its runs rolled up, in one query.
+
+    The counts come off a single protein -> run -> binder join. `runs` needs
+    distinct=True because that join fans out to one row per BINDER, so without
+    it a protein's run count would be multiplied by its design count; the
+    design-level counts need no distinct, since each binder appears once.
+    """
+    threshold = (DEFAULT_PLACEMENT_A if placement_threshold is None
+                 else placement_threshold)
+    return Protein.objects.annotate(
+        run_count=Count("binderrun", distinct=True),
+        designs=Count("binderrun__binder"),
+        placement_hits=Count("binderrun__binder", filter=Q(
+            binderrun__binder__bb_target_aligned_rmsd_design__lt=threshold)),
+        best_iptm=Max("binderrun__binder__design_to_target_iptm"),
+        # An RMSD: "best" is the minimum.
+        best_placement=Min("binderrun__binder__bb_target_aligned_rmsd_design"),
+    ).order_by("uniprot_id", "id")
+
+
 @api.get("/proteins", response=list[ProteinListSchema])
-def list_proteins(request):
-    return Protein.objects.all()
+def list_proteins(request, placement_threshold: float = DEFAULT_PLACEMENT_A):
+    """Unpaged, like the runs index and for the same reason: the aggregate
+    visits every binder whatever slice is returned, so paging would cut
+    transfer without cutting work."""
+    return protein_index_queryset(placement_threshold)
 
 
 @api.get("/proteins/{id}", response=ProteinDetailSchema)
@@ -543,7 +584,7 @@ def get_run_summary(request, run_id: int,
 # reads them. Stable: a consumer can rely on this header, and `metrics=full`
 # only ever appends.
 BINDER_EXPORT_COLUMNS = [
-    "binder_id", "run_id", "uniprot_id", "gene_name", "final_rank", "status",
+    "binder_id", "run_id", "run_code", "uniprot_id", "gene_name", "final_rank", "status",
     "pass_filters", "binder_length", "binder_sequence", "quality_score",
     "design_to_target_iptm", "min_interaction_pae",
     "bb_target_aligned_rmsd_design", "bb_rmsd_design", "designfolding_bb_rmsd",
@@ -605,7 +646,8 @@ def _binder_export_rows(run, qs, metric_keys):
     gene = run.protein.gene_name or ""
     for b in qs.iterator(chunk_size=500):
         row = [
-            b.id, run.id, uniprot, gene, b.final_rank, b.status,
+            b.id, run.id, run.run_code or "", uniprot, gene,
+            b.final_rank, b.status,
             b.pass_filters, b.binder_length, b.binder_sequence, b.quality_score,
             b.design_to_target_iptm, b.min_interaction_pae,
             b.bb_target_aligned_rmsd_design, b.bb_rmsd_design,
@@ -738,7 +780,7 @@ def export_run_meta(request, run_id: int):
 
 
 RUN_INDEX_EXPORT_COLUMNS = [
-    "run_id", "uniprot_id", "gene_name", "algorithm", "run_datetime",
+    "run_id", "run_code", "uniprot_id", "gene_name", "algorithm", "run_datetime",
     "epitope", "epitope_residues", "designs", "placement_hits",
     "monomer_consistent", "passed_filters", "placement_rate", "monomer_rate",
     "pass_rate", "best_iptm", "best_placement",
@@ -759,7 +801,8 @@ def export_runs_csv(request,
     def rows():
         for r in runs.iterator(chunk_size=200):
             yield [
-                r.id, r.protein.uniprot_id or "", r.protein.gene_name or "",
+                r.id, r.run_code or "",
+                r.protein.uniprot_id or "", r.protein.gene_name or "",
                 r.algorithm or "",
                 r.run_datetime.isoformat() if r.run_datetime else "",
                 RunListSchema.resolve_epitope(r) or "",

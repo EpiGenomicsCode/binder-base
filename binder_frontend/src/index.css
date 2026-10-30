@@ -517,6 +517,127 @@ h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter
   margin-bottom: 1rem;
 }
 
+/* Wider than the prose column: the glossary is the substance of the page and
+   the definitions do not read well in a 640px measure once they carry a
+   second paragraph. */
+.about-body { max-width: 760px; }
+
+.about-heading {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 2.25rem 0 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #ececec;
+}
+
+.about-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 1px;
+  background: #ebebeb;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  margin: 1.5rem 0 0.5rem;
+}
+.about-stat {
+  background: #fff;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+}
+.about-stat-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--teal);
+  line-height: 1.1;
+}
+.about-stat-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #999;
+  margin-top: 0.2rem;
+}
+
+/* ── Metric glossary ── */
+.about-glossary { margin: 0; }
+
+.about-term {
+  padding: 0.9rem 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+.about-term:last-child { border-bottom: none; }
+
+.about-term dt {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #222;
+  margin-bottom: 0.35rem;
+}
+/* The database column, so a reader of an exported CSV can match a heading on
+   this page to the field they are looking at. */
+.about-term-col {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: #999;
+  background: #f6f6f6;
+  border: 1px solid #ececec;
+  border-radius: 4px;
+  padding: 0.1rem 0.4rem;
+}
+.about-term dd {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #444;
+  line-height: 1.6;
+}
+/* The second paragraph of a definition is the part that says why the metric
+   is worth reading, which is softer than the definition itself. */
+.about-note {
+  margin: 0.5rem 0 0;
+  padding-left: 0.75rem;
+  border-left: 2px solid #e6e6e6;
+  color: #666;
+  font-size: 0.86rem;
+}
+
+.about-colours {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+}
+.about-colours li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+  color: #444;
+  line-height: 1.55;
+  margin-bottom: 0.6rem;
+}
+.about-swatch {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 0.15rem;
+  border-radius: 4px;
+  border: 1px solid rgba(0,0,0,0.18);
+}
+
+.about-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+  background: #f6f6f6;
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+}
+
 .list-header {
   display: flex;
   align-items: center;
@@ -1031,11 +1152,17 @@ dd { margin: 0; word-break: break-word; }
     flex-direction: column;
     height: auto;
   }
-  .cif-modal-viewers .cif-viewer-wrap {
+  .cif-modal-viewers .cif-viewer-wrap,
+  .cif-modal-viewers .cif-panel {
     flex: none;
     height: 320px;
     border-right: none;
     border-bottom: 1px solid #ebebeb;
+  }
+  .cif-modal-viewers .cif-panel .cif-viewer-wrap {
+    height: auto;
+    flex: 1 1 auto;
+    border-bottom: none;
   }
   .cif-modal-viewers .cif-viewer-wrap:last-child {
     border-bottom: none;
@@ -1409,6 +1536,50 @@ dd { margin: 0; word-break: break-word; }
   overflow: hidden;
 }
 .cif-viewer-wrap:last-child { border-right: none; }
+
+/* Wrapper so the complex panel can carry a colouring toggle above its viewer.
+   It takes .cif-viewer-wrap's place as the flex item, so the inner wrap must
+   stop claiming its own share of the row. */
+.cif-panel {
+  flex: 1 1 0;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.cif-panel .cif-viewer-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  border-right: none;
+}
+
+/* Floated over the viewport rather than given a row of its own: the panel is
+   450px tall and a control bar would come out of the structure's height. */
+.cif-coloring-toggle {
+  position: absolute;
+  top: 2.4rem;
+  right: 0.6rem;
+  z-index: 5;
+  display: flex;
+  border: 1px solid #d8d8d8;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+}
+.cif-coloring-btn {
+  padding: 0.22rem 0.6rem;
+  border: none;
+  background: #fff;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #666;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cif-coloring-btn + .cif-coloring-btn { border-left: 1px solid #e4e4e4; }
+.cif-coloring-btn:hover { background: #f3f8f8; color: var(--teal); }
+.cif-coloring-btn.active { background: var(--teal); color: #fff; }
 
 .cif-viewer-label {
   padding: 0.5rem 1rem;
@@ -3001,6 +3172,22 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
   font-size: 1.25rem;
   margin: 0;
 }
+/* The run's accession in the run page heading. A chip, not more heading
+   text: it is an identifier to copy, not part of the sentence. */
+.pd-run-code {
+  display: inline-block;
+  margin-left: 0.6rem;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid #d8d8d8;
+  border-radius: 5px;
+  background: #f6f6f6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: #666;
+  vertical-align: middle;
+}
+
 .pd-uniprot {
   font-family: monospace;
   font-size: 0.85rem;
@@ -3340,11 +3527,22 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
 }
 
 .runs-table td { vertical-align: middle; }
-.runs-table .td-num {
+
+/* Unscoped: the targets table reuses these for its rollup columns, and the
+   two leaderboards should render a rate identically. */
+.td-num, .th-num {
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* The verdict bands again, for the targets table's pooled placement rate. */
+table .v-good { color: #15803d; font-weight: 600; }
+table .v-some { color: #b45309; font-weight: 600; }
+table .v-none { color: #b91c1c; font-weight: 600; }
+
+/* Runs >= N sits on one line with its label. */
+.filter-runs-row { align-items: center; }
+.filter-runs-row .filter-range-input { max-width: 5rem; }
 
 /* Rate above, raw count beneath: a 50% rate over 2 designs must not read like
    a 50% rate over 1000. */
@@ -3355,8 +3553,27 @@ details[open] .sp-hotspot-details-summary::before { content: "▼ "; }
   font-weight: 400;
 }
 
-.runs-gene-link { font-weight: 600; }
-.runs-uniprot { font-family: monospace; font-size: 0.82rem; }
+/* The run's accession. Monospace because it is an identifier people compare
+   character by character, and tabular so the R-numbers line up down the
+   column. */
+.runs-code-link {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Gene over accession: the gene is what people scan for, the accession is
+   what disambiguates it. */
+.runs-target-link { display: inline-block; line-height: 1.25; }
+.runs-target-gene { display: block; font-weight: 600; }
+.runs-target-acc {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  color: #999;
+}
+.runs-table a.runs-target-link:hover .runs-target-acc { color: var(--teal); }
 
 .runs-epitope {
   font-family: monospace;

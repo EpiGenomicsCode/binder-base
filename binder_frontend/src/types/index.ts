@@ -15,6 +15,16 @@ export interface Protein {
   biological_function: string | null;
   cif_path: string | null;
   pae_json_path: string | null;
+
+  // Rolled up across every run against this target. Pinned by
+  // ProteinRollupTestCase.test_payload_shape_is_the_frontend_contract.
+  run_count: number;
+  designs: number;
+  placement_hits: number;
+  placement_rate: number;
+  best_iptm: number | null;
+  /** An RMSD, so lower is better. */
+  best_placement: number | null;
 }
 
 export interface Binder {
@@ -32,6 +42,8 @@ export interface Binder {
 
 export interface BinderRun {
   id: number;
+  /** Public accession, "Q02763-R001". Null when the protein has no UniProt ID. */
+  run_code: string | null;
   algorithm: string | null;
   description: string | null;
   run_datetime: string | null;
@@ -51,6 +63,8 @@ export interface BinderRun {
 export interface RunListRow {
   id: number;
   protein_id: number;
+  /** Public accession, "Q02763-R001". Null when the protein has no UniProt ID. */
+  run_code: string | null;
   uniprot_id: string | null;
   gene_name: string | null;
   algorithm: string | null;
