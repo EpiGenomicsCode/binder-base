@@ -334,6 +334,8 @@ KEY_HOTSPOT = "Hotspot residues"
 KEY_MASKED = "Masked cut faces"
 KEY_PATCH_N = "Binding patch residues"
 KEY_SOURCE = "Hotspot source"
+KEY_RESIDUES = "Target residues"
+KEY_OFFSET = "Residue offset"
 
 RECOVERED_NOTE = (
     "Recovered from the target structure's B_iso_or_equiv column during import, "
@@ -362,6 +364,32 @@ def _fill_constraints_from_structure(metadata, cif_path):
     metadata.setdefault(KEY_SOURCE, RECOVERED_NOTE)
     if found[structure.MASKED]:
         metadata.setdefault(KEY_MASKED, structure.to_ranges(found[structure.MASKED]))
+
+
+def _fill_residue_map(metadata, cif_path, protein_sequence):
+    """Record the target's own numbering, and where the crop sits in the protein.
+
+    The run page shows the structure, the target sequence and the *protein's*
+    full-length PAE side by side. Without this they are indexed in different
+    coordinate systems, so the epitope band lands wherever the crop's own
+    numbering happens to point and hovering lights up an unrelated residue.
+
+    Two values because they fail separately. "Target residues" comes from the
+    file alone and always works; the offset needs the protein and is silently
+    omitted when the crop cannot be placed, leaving the PAE unmarked rather
+    than marked wrongly. Needs the protein, so it runs later than the
+    constraint fill.
+    """
+    try:
+        mapping = structure.residue_mapping(cif_path, protein_sequence or "")
+    except (OSError, ValueError):
+        return
+    if mapping is None:
+        return
+    if not metadata.get(KEY_RESIDUES):
+        metadata[KEY_RESIDUES] = structure.to_ranges(mapping["residues"])
+    if mapping["offset"] is not None:
+        metadata.setdefault(KEY_OFFSET, mapping["offset"])
 
 
 class Command(BaseCommand):
@@ -481,6 +509,10 @@ class Command(BaseCommand):
                 )
             else:
                 self.stdout.write(f"Found Protein: {uniprot_id}")
+
+            # After the protein, because locating the crop needs its sequence.
+            if root_cif_files:
+                _fill_residue_map(metadata, root_cif_files[0], protein.sequence)
 
             steps_config = _parse_steps_config(run_dir)
 

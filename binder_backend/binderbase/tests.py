@@ -464,7 +464,8 @@ class RunSummaryTestCase(TestCase):
              "histograms", "enrichment", "provenance"})
         self.assertEqual(set(d["protein"]), {"id", "uniprot_id", "gene_name"})
         self.assertEqual(set(d["target"]),
-                         {"epitope", "crop_length", "structure_source", "masked_faces"})
+                         {"epitope", "crop_length", "structure_source",
+                          "masked_faces", "residues", "residue_offset"})
         self.assertEqual(set(d["counts"]),
                          {"designs", "passed_filters", "placement_hits",
                           "monomer_consistent"})
@@ -890,11 +891,16 @@ _atom_site.pdbx_PDB_model_num
 """
 
 
-def _write_cif(path, b_by_residue, atoms=("N", "CA", "C"), seq=None):
+def _write_cif(path, b_by_residue, atoms=("N", "CA", "C"), seq=None,
+               comp_by_residue=None):
     """A minimal but structurally real atom_site loop.
 
     Columns are emitted in BoltzGen's order because the parser reads by
     position within the declared loop, not from a fixed layout.
+
+    `comp_by_residue` names the residues, for the tests that locate a crop
+    inside its protein by identity; everything else is alanine and does not
+    care.
     """
     lines = []
     if seq is not None:
@@ -902,15 +908,32 @@ def _write_cif(path, b_by_residue, atoms=("N", "CA", "C"), seq=None):
     lines.append(_CIF_HEADER)
     serial = 1
     for resi in sorted(b_by_residue):
+        comp = (comp_by_residue or {}).get(resi, "ALA")
         for atom in atoms:
             lines.append(
-                f"ATOM {serial} C {atom} . ALA A 1 {resi} ? "
+                f"ATOM {serial} C {atom} . {comp} A 1 {resi} ? "
                 f"0.0 0.0 0.0 1 {b_by_residue[resi]} ? {resi} A 1"
             )
             serial += 1
     lines.append("#")
     with open(path, "w") as handle:
         handle.write("\n".join(lines) + "\n")
+
+
+_ONE_TO_THREE = {v: k for k, v in structure.THREE_TO_ONE.items()}
+
+
+def _crop_cif(path, numbering, residues):
+    """Write a crop of `residues` (one-letter) numbered by `numbering`.
+
+    The two are zipped, so a discontiguous numbering writes a discontiguous
+    crop -- which is the case that matters, since such a crop's sequence is
+    not a substring of its protein.
+    """
+    numbering = list(numbering)
+    comp = {resi: _ONE_TO_THREE[aa] for resi, aa in zip(numbering, residues)}
+    _write_cif(path, {resi: 0 for resi in numbering}, comp_by_residue=comp)
+    return path
 
 
 class StructureTestCase(TestCase):
@@ -1557,3 +1580,240 @@ class ProteinRollupTestCase(TestCase):
              "length", "biological_function", "cif_path", "pae_json_path",
              "run_count", "designs", "placement_hits", "placement_rate",
              "best_iptm", "best_placement"})
+
+
+class ResidueMappingTestCase(TestCase):
+    """Locating a target crop inside its parent protein.
+
+    Pure functions, no database: this is the one place that decides whether a
+    run's structure and its protein's PAE share a coordinate system.
+    """
+
+    # TAL1's bHLH domain, as the real run 243 carries it: residues 181..250 of
+    # P17542, renumbered 6..75 by the crop.
+    TAL1 = ("RRIFTNSRERWRQQNVNGAFAELRKLIPTHPPDKKLSKNEILRLAMKYINFLAKLLNDQEEEGTQRAK")
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def _cif(self, numbering, residues, name="t.cif"):
+        return _crop_cif(os.path.join(self.tmp, name), numbering, residues)
+
+    def test_a_crop_that_kept_the_parents_numbering_has_no_offset(self):
+        protein = "MKVLAAGIVGTWQNDEYFRS"
+        path = self._cif(range(6, 13), protein[5:12])
+        self.assertEqual(structure.find_offset(
+            structure.residue_identities(path), protein), 0)
+
+    def test_a_renumbered_crop_reports_where_it_came_from(self):
+        """The reported bug. TAL1's crop is numbered from 6, so the epitope
+        band was drawn over the protein's N-terminus instead of the bHLH
+        domain 175 residues later."""
+        protein = "M" * 180 + self.TAL1 + "G" * 83   # P17542 is 331 aa
+        path = self._cif(range(6, 6 + len(self.TAL1)), self.TAL1)
+        self.assertEqual(structure.find_offset(
+            structure.residue_identities(path), protein), 175)
+
+    def test_a_discontiguous_crop_is_located_by_identity_not_substring(self):
+        """TEK's target drops two internal loops, so its sequence appears
+        nowhere in TEK. A substring search finds nothing; matching residue by
+        residue against the numbering finds it exactly."""
+        protein = "MKVLAAGIVGTWQNDEYFRSPHCTM"
+        numbering = [3, 4, 5, 9, 10, 11, 20, 21]
+        kept = "".join(protein[r - 1] for r in numbering)
+        self.assertNotIn(kept, protein)
+        path = self._cif(numbering, kept)
+        mapping = structure.residue_mapping(path, protein)
+        self.assertEqual(mapping["offset"], 0)
+        self.assertEqual(mapping["residues"], numbering)
+
+    def test_the_map_is_the_structures_own_numbering_in_order(self):
+        """What the viewers index with: the nth residue of target_sequence is
+        the nth number here, gaps included. Kept in auth_seq_id rather than
+        converted, because that is the frame the epitope is written in."""
+        protein = "MKVLAAGIVGTWQNDEYFRSPHCTM"
+        numbering = [1, 2, 3, 7, 8]
+        kept = "".join(protein[r - 1] for r in numbering)
+        path = self._cif([r + 100 for r in numbering], kept)
+        mapping = structure.residue_mapping(path, protein)
+        self.assertEqual(mapping["offset"], -100)
+        self.assertEqual(mapping["residues"], [101, 102, 103, 107, 108])
+        self.assertEqual(len(mapping["residues"]),
+                         len(structure.residue_identities(path)))
+
+    def test_an_ambiguous_crop_is_refused_rather_than_guessed(self):
+        """Run 206's target is PPKCP, five residues of a proline-rich protein.
+        It fits in several places, and a map that picks one draws a confident
+        band on residues the design never saw."""
+        protein = "AAGPPKCPAAGPPKCPAAG"
+        path = self._cif(range(1, 6), "PPKCP")
+        self.assertIsNone(structure.find_offset(
+            structure.residue_identities(path), protein))
+        # The numbering still comes back -- only the placement is refused.
+        self.assertEqual(structure.residue_mapping(path, protein),
+                         {"residues": [1, 2, 3, 4, 5], "offset": None})
+
+    def test_a_crop_from_a_different_protein_does_not_align(self):
+        path = self._cif(range(1, 6), "WWWWW")
+        self.assertIsNone(
+            structure.residue_mapping(path, "MKVLAAGIVGT")["offset"])
+
+    def test_a_crop_running_past_the_end_of_the_protein_does_not_align(self):
+        path = self._cif(range(1, 6), "MKVLA")
+        self.assertIsNone(structure.residue_mapping(path, "MKV")["offset"])
+
+    def test_the_numbering_is_recorded_without_a_protein_to_place_it_in(self):
+        """The two halves fail separately: a run that cannot be located in its
+        protein still links its structure to its sequence."""
+        path = self._cif([5, 6, 9], "MKV")
+        self.assertEqual(structure.residue_mapping(path, ""),
+                         {"residues": [5, 6, 9], "offset": None})
+
+    def test_a_structure_with_no_residues_has_no_mapping_at_all(self):
+        path = os.path.join(self.tmp, "empty.cif")
+        _write_cif(path, {})
+        self.assertIsNone(structure.residue_mapping(path, "MKV"))
+
+    def test_an_unknown_residue_fails_closed(self):
+        """Modified residues read as X, which matches nothing -- better than
+        treating them as a wildcard that aligns anywhere."""
+        path = os.path.join(self.tmp, "x.cif")
+        _write_cif(path, {1: 0, 2: 0, 3: 0},
+                   comp_by_residue={1: "MET", 2: "SEP", 3: "VAL"})
+        self.assertEqual(structure.residue_identities(path),
+                         [(1, "M"), (2, "X"), (3, "V")])
+        self.assertIsNone(structure.residue_mapping(path, "MKV")["offset"])
+
+    def test_an_empty_structure_is_not_a_match_at_offset_zero(self):
+        self.assertIsNone(structure.find_offset([], "MKV"))
+        self.assertIsNone(structure.find_offset([(1, "M")], ""))
+
+
+class ResidueMapBackfillTestCase(_RunCommandMixin, TestCase):
+    """backfill_run_metadata --source residue-map."""
+
+    PROTEIN = "MKVLAAGIVGTWQNDEYFRSPHCTMKLDEWAFGH"
+
+    def setUp(self):
+        super().setUp()
+        self.protein.sequence = self.PROTEIN
+        self.protein.length = len(self.PROTEIN)
+        self.protein.save()
+
+    def _run_with_crop(self, numbering, folder="r1"):
+        os.makedirs(os.path.join(self.media, "runs", folder), exist_ok=True)
+        rel = f"runs/{folder}/target.cif"
+        kept = "".join(self.PROTEIN[r - 1] for r in numbering)
+        _crop_cif(os.path.join(self.media, rel), numbering, kept)
+        return BinderRun.objects.create(
+            protein=self.protein, algorithm="BoltzGen v1.0",
+            run_dir=f"runs/{folder}", cif_path=rel, metadata={})
+
+    def test_it_records_the_structures_numbering_and_its_offset(self):
+        run = self._run_with_crop([11, 12, 13, 14, 15])
+        self._call("backfill_run_metadata", source="residue-map")
+        run.refresh_from_db()
+        self.assertEqual(run.metadata["Target residues"], "11..15")
+        self.assertEqual(run.metadata["Residue offset"], 0)
+
+    def test_a_renumbered_crop_records_its_offset(self):
+        """The offset is what converts the auth-numbered epitope ranges, so a
+        run that reports one is a run whose PAE band moves."""
+        run = self._run_with_crop([11, 12, 13, 14, 15])
+        # Rewrite the same five residues numbered from 1, as a crop that
+        # reindexed would be.
+        _crop_cif(os.path.join(self.media, "runs", "r1", "target.cif"),
+                  range(1, 6), self.PROTEIN[10:15])
+        self._call("backfill_run_metadata", source="residue-map")
+        run.refresh_from_db()
+        # The structure says 1..5; the offset is what puts it at 11..15.
+        self.assertEqual(run.metadata["Target residues"], "1..5")
+        self.assertEqual(run.metadata["Residue offset"], 10)
+
+    def test_a_discontiguous_crop_keeps_its_gaps(self):
+        run = self._run_with_crop([3, 4, 5, 20, 21])
+        self._call("backfill_run_metadata", source="residue-map")
+        run.refresh_from_db()
+        self.assertEqual(run.metadata["Target residues"], "3..5,20..21")
+
+    def test_an_unalignable_crop_keeps_its_numbering_and_loses_only_the_offset(self):
+        """The halves fail separately. Recording the numbering is what keeps
+        the structure and the sequence linked; omitting the offset is what
+        leaves the PAE unmarked instead of marked wrongly."""
+        run = self._run_with_crop([11, 12, 13, 14, 15])
+        _crop_cif(os.path.join(self.media, "runs", "r1", "target.cif"),
+                  range(1, 6), "WWWWW")
+        out = self._call("backfill_run_metadata", source="residue-map")
+        run.refresh_from_db()
+        self.assertEqual(run.metadata["Target residues"], "1..5")
+        self.assertNotIn("Residue offset", run.metadata)
+        self.assertIn("does not align", out)
+
+    def test_an_unalignable_crop_already_recorded_is_skipped_with_its_reason(self):
+        run = self._run_with_crop([11, 12, 13, 14, 15])
+        _crop_cif(os.path.join(self.media, "runs", "r1", "target.cif"),
+                  range(1, 6), "WWWWW")
+        self._call("backfill_run_metadata", source="residue-map")
+        out = self._call("backfill_run_metadata", source="residue-map")
+        run.refresh_from_db()
+        self.assertEqual(run.metadata["Target residues"], "1..5")
+        self.assertIn("does not align", out)
+
+    def test_a_protein_without_a_sequence_still_gets_its_numbering(self):
+        self.protein.sequence = ""
+        self.protein.save()
+        run = self._run_with_crop([11, 12, 13])
+        self._call("backfill_run_metadata", source="residue-map")
+        run.refresh_from_db()
+        self.assertEqual(run.metadata["Target residues"], "11..13")
+        self.assertNotIn("Residue offset", run.metadata)
+
+    def test_an_existing_map_is_kept(self):
+        run = self._run_with_crop([11, 12, 13, 14, 15])
+        run.metadata = {"Target residues": "1..5", "Residue offset": 7}
+        run.save()
+        self._call("backfill_run_metadata", source="residue-map")
+        run.refresh_from_db()
+        self.assertEqual(run.metadata["Target residues"], "1..5")
+        self.assertEqual(run.metadata["Residue offset"], 7)
+
+    def test_force_replaces_it(self):
+        run = self._run_with_crop([11, 12, 13, 14, 15])
+        run.metadata = {"Target residues": "1..5", "Residue offset": 7}
+        run.save()
+        self._call("backfill_run_metadata", source="residue-map", force=True)
+        run.refresh_from_db()
+        self.assertEqual(run.metadata["Target residues"], "11..15")
+        self.assertEqual(run.metadata["Residue offset"], 0)
+
+    def test_a_half_recorded_map_is_completed_without_force(self):
+        """A run backfilled while its protein had no sequence must pick up its
+        offset on the next pass, not be skipped as already done."""
+        run = self._run_with_crop([11, 12, 13, 14, 15])
+        run.metadata = {"Target residues": "11..15"}
+        run.save()
+        self._call("backfill_run_metadata", source="residue-map")
+        run.refresh_from_db()
+        self.assertEqual(run.metadata["Residue offset"], 0)
+
+    def test_dry_run_writes_nothing(self):
+        run = self._run_with_crop([11, 12, 13, 14, 15])
+        self._call("backfill_run_metadata", source="residue-map", dry_run=True)
+        run.refresh_from_db()
+        self.assertNotIn("Target residues", run.metadata)
+
+    def test_the_summary_endpoint_exposes_the_map(self):
+        """The viewers cannot index the PAE without it, so the contract is
+        part of the fix rather than incidental to it."""
+        run = self._run_with_crop([11, 12, 13, 14, 15])
+        self._call("backfill_run_metadata", source="residue-map")
+        target = Client().get(f"/api/runs/{run.id}/summary").json()["target"]
+        self.assertEqual(target["residues"], "11..15")
+        self.assertEqual(target["residue_offset"], 0)
+
+    def test_the_summary_reports_absence_rather_than_omitting_the_keys(self):
+        run = self._run_with_crop([11, 12, 13])
+        target = Client().get(f"/api/runs/{run.id}/summary").json()["target"]
+        self.assertIsNone(target["residues"])
+        self.assertIsNone(target["residue_offset"])

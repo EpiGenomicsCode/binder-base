@@ -36,6 +36,17 @@ export interface Binder {
   final_rank: number | null;
   quality_score: number | null;
   design_to_target_iptm: number | null;
+  // Promoted out of `metrics` on the backend so they can be filtered and
+  // sorted. BinderSchema has served all of these since the columns existed;
+  // only three were declared here, so the run page had been reaching into the
+  // raw blob for numbers it was already being handed typed.
+  min_interaction_pae: number | null;
+  bb_target_aligned_rmsd_design: number | null;
+  bb_rmsd_design: number | null;
+  designfolding_bb_rmsd: number | null;
+  complex_plddt: number | null;
+  design_ptm: number | null;
+  pass_filters: boolean | null;
   metrics: Record<string, unknown> | null;
   cif_path: string | null;
 }
@@ -170,6 +181,14 @@ export interface RunSummary {
     crop_length: number | null;
     structure_source: string | null;
     masked_faces: string | null;
+    /**
+     * Where the crop sits in the parent protein, as UniProt residue numbers in
+     * the crop's own order -- so the nth residue of `target_sequence` is the
+     * nth number here. Null for a run whose crop could not be placed.
+     */
+    residues: string | null;
+    /** `uniprot = auth + offset`, for the auth-numbered ranges above. */
+    residue_offset: number | null;
   };
   counts: {
     designs: number;
