@@ -4,6 +4,7 @@ import type { Binder } from "../types";
 import CifViewer from "./CifViewer";
 import ExportMenu from "./ExportMenu";
 import { LinkedSequenceBlock, statusClass } from "./SequenceBlock";
+import { groupMetrics, headlineMetrics } from "../utils/binderMetrics";
 
 interface BinderModalProps {
   binder: Binder;
@@ -129,38 +130,91 @@ function BinderModal({ binder, onClose, epitope = [], masked = [] }: BinderModal
         ) : (
           <p className="cif-modal-empty">No CIF files available for this binder.</p>
         )}
-        <div className="cif-modal-meta-title">DETAILS</div>
-        {(() => {
-          const entries: { label: string; value: string }[] = [
-            { label: "Rank", value: binder.final_rank != null ? String(binder.final_rank) : "—" },
-            { label: "Length", value: binder.binder_length != null ? `${binder.binder_length} aa` : "—" },
-            { label: "Quality Score", value: binder.quality_score != null ? binder.quality_score.toFixed(3) : "—" },
-            { label: "Design to Target iPTM", value: binder.design_to_target_iptm != null ? binder.design_to_target_iptm.toFixed(3) : "—" },
-            ...(binder.failure_reason ? [{ label: "Failure Reason", value: binder.failure_reason }] : []),
-            ...(binder.metrics
-              ? Object.entries(binder.metrics)
-                  .filter(([key]) => key !== "id" && key !== "file_name")
-                  .map(([key, val]) => ({ label: key, value: String(val) }))
-              : []),
-          ];
-          const rows: typeof entries[] = [];
-          for (let i = 0; i < entries.length; i += 2) rows.push(entries.slice(i, i + 2));
-          return (
-            <table className="cif-modal-meta-table">
-              <tbody>
-                {rows.map((pair, i) => (
-                  <tr key={i}>
-                    <th>{pair[0].label}</th>
-                    <td className="cif-modal-meta-val-left">{pair[0].value}</td>
-                    <th className="cif-modal-meta-th-right">{pair[1]?.label ?? ""}</th>
-                    <td>{pair[1]?.value ?? ""}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          );
-        })()}
+        <BinderDetails binder={binder} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * What the pipeline measured, in the order a reader needs it.
+ *
+ * The six metrics that decide whether a design is good come first, named and
+ * with their units and thresholds. Everything else -- 254 columns for a
+ * BoltzGen run -- goes under a disclosure, grouped, because it was previously
+ * one flat list of raw column names in CSV order and nothing in it could be
+ * found.
+ */
+function BinderDetails({ binder }: { binder: Binder }) {
+  const [open, setOpen] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const headline = headlineMetrics(binder);
+  const { groups, shown, total } = groupMetrics(binder.metrics, showAll);
+
+  return (
+    <div className="bd">
+      <div className="cif-modal-meta-title">WHAT MATTERS</div>
+      <dl className="bd-headline">
+        {headline.map((m) => (
+          <div className="bd-metric" key={m.label}>
+            <dt>{m.label}</dt>
+            <dd>
+              <span className={`bd-value${m.verdict ? ` bd-${m.verdict}` : ""}`}>
+                {m.value ?? "—"}
+              </span>
+              {m.note && <span className="bd-note">{m.note}</span>}
+            </dd>
+          </div>
+        ))}
+      </dl>
+
+      {total > 0 && (
+        <div className="bd-all">
+          <button
+            type="button"
+            className="bd-disclosure"
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+          >
+            <span className="bd-caret">{open ? "▾" : "▸"}</span>
+            All metrics
+            <span className="bd-count">
+              {showAll ? `${total}` : `${shown} of ${total} recorded`}
+            </span>
+          </button>
+          {open && (
+            <>
+              <label className="bd-toggle">
+                <input
+                  type="checkbox"
+                  checked={showAll}
+                  onChange={(e) => setShowAll(e.target.checked)}
+                />
+                {/* Blank and nan are hidden always; zero and false only where
+                    the key is a count or a flag, so a measured zero -- no
+                    hydrogen bonds across the interface, say -- still shows. */}
+                Show empty and zero-valued fields
+              </label>
+              {groups.map((g) => (
+                <section className="bd-group" key={g.id}>
+                  <h4 className="bd-group-title">
+                    {g.title}
+                    <span className="bd-group-n">{g.entries.length}</span>
+                  </h4>
+                  <dl className={`bd-grid${g.secondary ? " bd-grid-quiet" : ""}`}>
+                    {g.entries.map((e) => (
+                      <div className="bd-row" key={e.key}>
+                        <dt title={e.key}>{e.label}</dt>
+                        <dd>{e.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              ))}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

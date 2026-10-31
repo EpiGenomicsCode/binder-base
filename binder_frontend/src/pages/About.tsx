@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getStats } from "../api/client";
 import usePageMeta, { count as fmtCount } from "../utils/pageMeta";
+import { MONOMER_A, PLACEMENT_A } from "../utils/binderMetrics";
 import type { Stats } from "../types";
 
 /**
@@ -14,9 +15,6 @@ import type { Stats } from "../types";
  * the substance here and the introduction is the preamble.
  */
 
-/** Matches DEFAULT_PLACEMENT_A / DEFAULT_MONOMER_A in binderbase/api.py. */
-const PLACEMENT_A = 2.0;
-const MONOMER_A = 2.0;
 
 interface Metric {
   term: string;
