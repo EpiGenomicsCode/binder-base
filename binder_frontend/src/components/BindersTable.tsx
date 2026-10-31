@@ -137,13 +137,18 @@ function BinderModal({ binder, onClose, epitope = [], masked = [] }: BinderModal
 }
 
 /**
- * What the pipeline measured, in the order a reader needs it.
+ * What the pipeline measured.
  *
- * The six metrics that decide whether a design is good come first, named and
- * with their units and thresholds. Everything else -- 254 columns for a
- * BoltzGen run -- goes under a disclosure, grouped, because it was previously
- * one flat list of raw column names in CSV order and nothing in it could be
- * found.
+ * The six metrics BinderBase records for every design regardless of the tool
+ * that produced it come first -- the promoted columns, which are the ones with
+ * units, thresholds and a definition in the About glossary. Calling them the
+ * ones that matter would be a claim about the science rather than a
+ * description of the section; what is true of them is that they are the
+ * comparable ones.
+ *
+ * Everything else -- 254 columns for a BoltzGen run -- goes under a
+ * disclosure, grouped, because it was previously one flat list of raw column
+ * names in CSV order and nothing in it could be found.
  */
 function BinderDetails({ binder }: { binder: Binder }) {
   const [open, setOpen] = useState(false);
@@ -153,7 +158,7 @@ function BinderDetails({ binder }: { binder: Binder }) {
 
   return (
     <div className="bd">
-      <div className="cif-modal-meta-title">WHAT MATTERS</div>
+      <div className="cif-modal-meta-title">STANDARD METRICS</div>
       <dl className="bd-headline">
         {headline.map((m) => (
           <div className="bd-metric" key={m.label}>
