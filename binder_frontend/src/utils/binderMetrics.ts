@@ -155,6 +155,10 @@ export interface MetricGroup {
   /** Collapsed by default: present for completeness, not for reading. */
   secondary?: boolean;
   entries: { key: string; label: string; value: string }[];
+  /** Every column classified here, including the ones `entries` filtered out.
+   *  The group heading reports this, so a section rendered as one summary line
+   *  still says how many columns it stands for. */
+  total: number;
 }
 
 interface Rule {
@@ -229,27 +233,216 @@ export function groupMetrics(
 ): { groups: MetricGroup[]; shown: number; total: number } {
   const byId = new Map<string, MetricGroup>();
   for (const rule of RULES) {
-    byId.set(rule.id, { id: rule.id, title: rule.title, secondary: rule.secondary, entries: [] });
+    byId.set(rule.id, {
+      id: rule.id, title: rule.title, secondary: rule.secondary,
+      entries: [], total: 0,
+    });
   }
 
   let total = 0;
   let shown = 0;
   for (const [key, value] of Object.entries(metrics ?? {})) {
     total += 1;
+    const group = byId.get(RULES.find((r) => r.match(key))!.id)!;
+    group.total += 1;
     if (!showAll && isUninformative(key, value)) continue;
     shown += 1;
-    const rule = RULES.find((r) => r.match(key))!;
-    byId.get(rule.id)!.entries.push({
-      key, label: humanise(key), value: formatValue(value),
-    });
+    group.entries.push({ key, label: humanise(key), value: formatValue(value) });
   }
 
   for (const group of byId.values()) {
     group.entries.sort((a, b) => a.key.localeCompare(b.key));
   }
   return {
-    groups: RULES.map((r) => byId.get(r.id)!).filter((g) => g.entries.length > 0),
+    groups: RULES.map((r) => byId.get(r.id)!).filter((g) => g.total > 0),
     shown,
     total,
   };
+}
+
+// --- native shapes ----------------------------------------------------------
+//
+// Three of the groups above are not lists of scalars at all; they only look
+// like one because a CSV has to be flat. Rendering them as what they are is
+// the difference between 88 rows of `Liability AspCleave num positions` and
+// one line saying nothing was flagged.
+
+function text(v: unknown): string {
+  return v == null ? "" : String(v).trim();
+}
+
+function num(v: unknown): number | null {
+  const n = Number(text(v));
+  return Number.isFinite(n) ? n : null;
+}
+
+/** ~10 liability types x 9 sub-fields, flattened by the CSV. */
+const LIABILITY_FIELD =
+  /^liability_([A-Za-z0-9]+)_(count|position|length|severity|details|positions|num_positions|global_details|avg_severity)$/;
+
+export interface LiabilityType {
+  type: string;
+  count: number | null;
+  severity: number | null;
+  positions: string;
+  details: string;
+  /** Anything non-trivial recorded against this type. */
+  flagged: boolean;
+}
+
+export interface LiabilityView {
+  /** liability_score and the violation tallies, which are not per-type. */
+  summary: { label: string; value: string }[];
+  types: LiabilityType[];
+  flagged: LiabilityType[];
+}
+
+/**
+ * Pivot `liability_<Type>_<field>` back into the table it came from.
+ *
+ * Verified against a production designs CSV: 88 keys decompose into exactly
+ * 9 types x 9 fields with 7 genuine top-level keys left over and nothing
+ * unmatched.
+ *
+ * "Flagged" is deliberately wider than `count > 0`. Real rows carry a severity
+ * or a position range while the count sits at zero -- AspBridge reports
+ * severity 10 with count 0, AspCleave reports positions 19-52 with count 0 --
+ * so keying off the count alone would call those clear.
+ */
+export function liabilityView(
+  metrics: Record<string, unknown> | null | undefined,
+): LiabilityView | null {
+  if (!metrics) return null;
+  const byType = new Map<string, Record<string, unknown>>();
+  const summary: { label: string; value: string }[] = [];
+  let seen = false;
+
+  for (const [key, value] of Object.entries(metrics)) {
+    if (!key.startsWith("liability_")) continue;
+    seen = true;
+    const m = LIABILITY_FIELD.exec(key);
+    if (m) {
+      const fields = byType.get(m[1]) ?? {};
+      fields[m[2]] = value;
+      byType.set(m[1], fields);
+    } else if (!isBlank(value)) {
+      summary.push({ label: humanise(key.replace(/^liability_/, "")),
+                     value: formatValue(value) });
+    }
+  }
+  if (!seen) return null;
+
+  const types: LiabilityType[] = [...byType.entries()]
+    .map(([type, f]) => {
+      const count = num(f.count);
+      const severity = num(f.severity) ?? num(f.avg_severity);
+      const positions = text(f.positions);
+      const details = text(f.details) || text(f.global_details);
+      return {
+        type, count, severity, positions, details,
+        flagged: (count ?? 0) > 0 || (severity ?? 0) > 0 ||
+                 positions !== "" || details !== "",
+      };
+    })
+    .sort((a, b) => a.type.localeCompare(b.type));
+
+  return { summary, types, flagged: types.filter((t) => t.flagged) };
+}
+
+export interface CompositionView {
+  /** Non-zero residue fractions, most abundant first. */
+  residues: { aa: string; fraction: number }[];
+  /** Secondary structure, hydrophobicity, token counts: ordinary rows. */
+  other: { label: string; value: string }[];
+}
+
+const AA_FRACTION = /^([A-Z]{3})_fraction$/;
+const THREE_TO_ONE: Record<string, string> = {
+  ALA: "A", ARG: "R", ASN: "N", ASP: "D", CYS: "C", GLN: "Q", GLU: "E",
+  GLY: "G", HIS: "H", ILE: "I", LEU: "L", LYS: "K", MET: "M", PHE: "F",
+  PRO: "P", SER: "S", THR: "T", TRP: "W", TYR: "Y", VAL: "V", UNK: "X",
+};
+
+/**
+ * The 21 `*_fraction` columns are one profile, not 21 numbers.
+ *
+ * Sorted by abundance rather than alphabetically, because the question a
+ * reader has is "is this sequence dominated by anything" -- and alphabetical
+ * order buries 27% alanine between ARG and ASN. Zero-fraction residues are
+ * dropped here: absence of a residue is visible from the profile itself.
+ */
+export function compositionView(
+  metrics: Record<string, unknown> | null | undefined,
+): CompositionView | null {
+  if (!metrics) return null;
+  const residues: { aa: string; fraction: number }[] = [];
+  const other: { label: string; value: string }[] = [];
+  let seen = false;
+
+  for (const [key, value] of Object.entries(metrics)) {
+    const m = AA_FRACTION.exec(key);
+    if (m) {
+      seen = true;
+      const f = num(value);
+      if (f != null && f > 0) residues.push({ aa: THREE_TO_ONE[m[1]] ?? m[1], fraction: f });
+    } else if (COMPOSITION.test(key) && !isBlank(value)) {
+      seen = true;
+      other.push({ label: humanise(key), value: formatValue(value) });
+    }
+  }
+  if (!seen) return null;
+
+  residues.sort((a, b) => b.fraction - a.fraction);
+  other.sort((a, b) => a.label.localeCompare(b.label));
+  return { residues, other };
+}
+
+export interface FilterView {
+  /** The pipeline's overall verdict, `pass_filters`. */
+  overall: boolean | null;
+  /** `num_filters_passed`, as recorded. */
+  passedCount: string | null;
+  tests: { label: string; passed: boolean | null }[];
+}
+
+/**
+ * `pass_*` is one verdict plus the individual tests behind it.
+ *
+ * Which test failed is the only part a reader acts on, so the tests are shown
+ * as chips and the failures sort first -- in a flat alphabetical list the one
+ * `no` among ten `yes`es is the hardest thing on screen to find.
+ */
+export function filterView(
+  metrics: Record<string, unknown> | null | undefined,
+): FilterView | null {
+  if (!metrics) return null;
+  let overall: boolean | null = null;
+  let passedCount: string | null = null;
+  const tests: { label: string; passed: boolean | null }[] = [];
+
+  for (const [key, value] of Object.entries(metrics)) {
+    if (key === "pass_filters") {
+      overall = parseBool(value);
+    } else if (key === "num_filters_passed") {
+      if (!isBlank(value)) passedCount = formatValue(value);
+    } else if (key.startsWith("pass_")) {
+      tests.push({
+        label: humanise(key.replace(/^pass_/, "").replace(/_filter$/, "")),
+        passed: parseBool(value),
+      });
+    }
+  }
+  if (overall == null && passedCount == null && !tests.length) return null;
+
+  tests.sort((a, b) =>
+    Number(a.passed ?? true) - Number(b.passed ?? true) ||
+    a.label.localeCompare(b.label));
+  return { overall, passedCount, tests };
+}
+
+function parseBool(v: unknown): boolean | null {
+  const s = text(v).toLowerCase();
+  if (s === "true" || s === "1") return true;
+  if (s === "false" || s === "0") return false;
+  return null;
 }

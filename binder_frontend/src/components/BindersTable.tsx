@@ -4,7 +4,9 @@ import type { Binder } from "../types";
 import CifViewer from "./CifViewer";
 import ExportMenu from "./ExportMenu";
 import { LinkedSequenceBlock, statusClass } from "./SequenceBlock";
-import { groupMetrics, headlineMetrics } from "../utils/binderMetrics";
+import {
+  compositionView, filterView, groupMetrics, headlineMetrics, liabilityView,
+} from "../utils/binderMetrics";
 
 interface BinderModalProps {
   binder: Binder;
@@ -136,6 +138,148 @@ function BinderModal({ binder, onClose, epitope = [], masked = [] }: BinderModal
   );
 }
 
+type RawMetrics = Record<string, unknown> | null;
+
+function MetricGrid({
+  entries, quiet,
+}: { entries: { key: string; label: string; value: string }[]; quiet?: boolean }) {
+  if (!entries.length) return <p className="bd-none">Nothing recorded.</p>;
+  return (
+    <dl className={`bd-grid${quiet ? " bd-grid-quiet" : ""}`}>
+      {entries.map((e) => (
+        <div className="bd-row" key={e.key}>
+          <dt title={e.key}>{e.label}</dt>
+          <dd>{e.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** ~10 liability types, as the table the CSV flattened. */
+function Liabilities({ metrics }: { metrics: RawMetrics }) {
+  const view = liabilityView(metrics);
+  if (!view) return <p className="bd-none">Nothing recorded.</p>;
+  return (
+    <>
+      {view.summary.length > 0 && (
+        <dl className="bd-grid">
+          {view.summary.map((e) => (
+            <div className="bd-row" key={e.label}>
+              <dt>{e.label}</dt>
+              <dd>{e.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {view.flagged.length === 0 ? (
+        <p className="bd-clear">
+          Nothing flagged — {view.types.length} liability
+          {view.types.length === 1 ? " type" : " types"} checked.
+        </p>
+      ) : (
+        <table className="bd-liability">
+          <thead>
+            <tr>
+              <th>Liability</th><th>Count</th><th>Severity</th>
+              <th>Positions</th><th>Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            {view.flagged.map((t) => (
+              <tr key={t.type}>
+                <th scope="row">{t.type}</th>
+                <td>{t.count ?? "—"}</td>
+                <td>{t.severity ?? "—"}</td>
+                <td>{t.positions || "—"}</td>
+                <td className="bd-liability-detail">{t.details || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {view.flagged.length > 0 && view.flagged.length < view.types.length && (
+        <p className="bd-clear">
+          The other {view.types.length - view.flagged.length} types are clear.
+        </p>
+      )}
+    </>
+  );
+}
+
+/** The 21 *_fraction columns as one profile, most abundant residue first. */
+function Composition({ metrics }: { metrics: RawMetrics }) {
+  const view = compositionView(metrics);
+  if (!view) return <p className="bd-none">Nothing recorded.</p>;
+  // Scaled to the most abundant residue rather than to 100%, so the shape of
+  // the profile is visible instead of twenty near-empty bars.
+  const peak = view.residues.reduce((m, r) => Math.max(m, r.fraction), 0) || 1;
+  return (
+    <>
+      {view.residues.length > 0 && (
+        <ul className="bd-aa">
+          {view.residues.map((r) => (
+            <li key={r.aa}>
+              <span className="bd-aa-letter">{r.aa}</span>
+              <span className="bd-aa-track">
+                <span className="bd-aa-bar"
+                      style={{ width: `${(r.fraction / peak) * 100}%` }} />
+              </span>
+              <span className="bd-aa-pct">{(r.fraction * 100).toFixed(1)}%</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {view.other.length > 0 && (
+        <dl className="bd-grid">
+          {view.other.map((e) => (
+            <div className="bd-row" key={e.label}>
+              <dt>{e.label}</dt>
+              <dd>{e.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </>
+  );
+}
+
+/** One verdict plus the tests behind it, failures first. */
+function Filters({ metrics }: { metrics: RawMetrics }) {
+  const view = filterView(metrics);
+  if (!view) return <p className="bd-none">Nothing recorded.</p>;
+  return (
+    <>
+      <p className="bd-filter-verdict">
+        {view.overall == null ? (
+          "No overall verdict recorded."
+        ) : (
+          <span className={view.overall ? "bd-good" : "bd-bad"}>
+            {view.overall ? "Passed every filter" : "Did not pass"}
+          </span>
+        )}
+        {view.passedCount != null && (
+          <span className="bd-note"> {view.passedCount} tests passed</span>
+        )}
+      </p>
+      {view.tests.length > 0 && (
+        <ul className="bd-chips">
+          {view.tests.map((t) => (
+            <li key={t.label}
+                className={t.passed == null ? "bd-chip-unknown"
+                           : t.passed ? "bd-chip-pass" : "bd-chip-fail"}>
+              <span aria-hidden="true">
+                {t.passed == null ? "?" : t.passed ? "\u2713" : "\u2717"}
+              </span>
+              {t.label}
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
 /**
  * What the pipeline measured.
  *
@@ -154,7 +298,7 @@ function BinderDetails({ binder }: { binder: Binder }) {
   const [open, setOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const headline = headlineMetrics(binder);
-  const { groups, shown, total } = groupMetrics(binder.metrics, showAll);
+  const { groups, total } = groupMetrics(binder.metrics, showAll);
 
   return (
     <div className="bd">
@@ -184,7 +328,7 @@ function BinderDetails({ binder }: { binder: Binder }) {
             <span className="bd-caret">{open ? "▾" : "▸"}</span>
             All metrics
             <span className="bd-count">
-              {showAll ? `${total}` : `${shown} of ${total} recorded`}
+              {total} column{total === 1 ? "" : "s"}
             </span>
           </button>
           {open && (
@@ -198,22 +342,27 @@ function BinderDetails({ binder }: { binder: Binder }) {
                 {/* Blank and nan are hidden always; zero and false only where
                     the key is a count or a flag, so a measured zero -- no
                     hydrogen bonds across the interface, say -- still shows. */}
-                Show empty and zero-valued fields
+                Show every column as the pipeline recorded it
               </label>
               {groups.map((g) => (
                 <section className="bd-group" key={g.id}>
                   <h4 className="bd-group-title">
                     {g.title}
-                    <span className="bd-group-n">{g.entries.length}</span>
+                    <span className="bd-group-n">
+                      {g.total} column{g.total === 1 ? "" : "s"}
+                    </span>
                   </h4>
-                  <dl className={`bd-grid${g.secondary ? " bd-grid-quiet" : ""}`}>
-                    {g.entries.map((e) => (
-                      <div className="bd-row" key={e.key}>
-                        <dt title={e.key}>{e.label}</dt>
-                        <dd>{e.value}</dd>
-                      </div>
-                    ))}
-                  </dl>
+                  {/* Raw mode bypasses every custom view: the toggle's job is
+                      to show the columns exactly as the pipeline wrote them. */}
+                  {!showAll && g.id === "liabilities" ? (
+                    <Liabilities metrics={binder.metrics} />
+                  ) : !showAll && g.id === "composition" ? (
+                    <Composition metrics={binder.metrics} />
+                  ) : !showAll && g.id === "filters" ? (
+                    <Filters metrics={binder.metrics} />
+                  ) : (
+                    <MetricGrid entries={g.entries} quiet={g.secondary} />
+                  )}
                 </section>
               ))}
             </>
