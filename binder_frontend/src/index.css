@@ -1084,6 +1084,25 @@ dd { margin: 0; word-break: break-word; }
   padding: 0.25rem 0.8rem;
 }
 
+/* The pipeline's own pass/fail, beside the status it belongs with. Outlined
+   rather than filled so it reads as a second, weaker claim than the status
+   pill: status is what BinderBase recorded, this is what one pipeline decided
+   using thresholds another pipeline would not share. */
+.verdict-pill {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.12rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 99px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  cursor: help;
+}
+
+.verdict-pill.v-pass { background: #f0f7f1; border-color: #bcdcc4; color: #2f6b3b; }
+.verdict-pill.v-fail { background: #fdf0f0; border-color: #eec4c4; color: #a32020; }
+
 /* ── Binder row clickable ── */
 .binder-row { cursor: pointer; }
 .binder-row:hover td { background: #eff6ff; }
@@ -1227,20 +1246,54 @@ dd { margin: 0; word-break: break-word; }
   border-top: 1px solid #ebebeb;
 }
 
+/* Five measurements, with the separators owned by the tiles.
+
+   This was `auto-fit, minmax(210px, 1fr)` over an #e8e8e8 container with a 1px
+   gap, so the hairlines were the container showing through between tiles. That
+   only looks right while every cell is filled. The modal is min(92vw, 1100px),
+   six columns needed 6x210 + 5 = 1265px and did not fit, so auto-fit settled
+   on five, the sixth tile wrapped alone, and the four empty cells beside it
+   rendered as roughly 840x60px of bare grey.
+
+   Two changes, either of which would have been enough and which together make
+   it structural: the container no longer has a background, so an empty cell is
+   invisible; and the column count is explicit, so it always divides the tiles
+   and there are no stray cells to begin with. Explicit counts are also what
+   lets the rules below know where a row starts -- with auto-fit, nothing in
+   CSS does. */
 .bd-headline {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 1px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0;
   margin: 0;
   padding: 0;
-  background: #e8e8e8;
   border-top: 1px solid #e8e8e8;
   border-bottom: 1px solid #e8e8e8;
 }
 
 .bd-metric {
-  background: #fff;
-  padding: 0.7rem 1.25rem 0.8rem;
+  padding: 0.7rem 1.1rem 0.8rem;
+  border-left: 1px solid #e8e8e8;
+  min-width: 0;
+}
+
+.bd-metric:nth-child(5n + 1) { border-left: none; }
+
+/* `:nth-child(n)` matches everything and exists only to restore the hairline
+   at the same specificity as the rule above it; a plain `.bd-metric` here
+   would lose to `.bd-metric:nth-child(5n + 1)` and leave the wrong tile open. */
+@media (max-width: 1000px) {
+  .bd-headline { grid-template-columns: repeat(3, 1fr); }
+  .bd-metric:nth-child(n)     { border-left: 1px solid #e8e8e8; }
+  .bd-metric:nth-child(3n + 1) { border-left: none; }
+  .bd-metric:nth-child(n + 4)  { border-top: 1px solid #e8e8e8; }
+}
+
+@media (max-width: 620px) {
+  .bd-headline { grid-template-columns: repeat(2, 1fr); }
+  .bd-metric:nth-child(n)     { border-left: 1px solid #e8e8e8; }
+  .bd-metric:nth-child(2n + 1) { border-left: none; }
+  .bd-metric:nth-child(n + 3)  { border-top: 1px solid #e8e8e8; }
 }
 
 .bd-metric dt {
@@ -1274,6 +1327,36 @@ dd { margin: 0; word-break: break-word; }
   font-size: 0.72rem;
   line-height: 1.35;
   color: #8a8a8a;
+}
+
+/* The run's own distribution behind the design's value. The bars are a
+   backdrop and the tick is the subject, so the bars take a washed-out version
+   of the chart teal rather than competing with it. */
+.bd-spark {
+  margin-top: 0.45rem;
+}
+
+.bd-spark-svg {
+  display: block;
+  width: 100%;
+  height: 26px;
+}
+
+.bd-spark-bar  { fill: rgba(13, 148, 136, 0.24); }
+.bd-spark-base { stroke: #e0e0e0; stroke-width: 1; }
+/* The same dashed amber the run page's charts use for a threshold line. */
+.bd-spark-mark { stroke: #b45309; stroke-width: 1; stroke-dasharray: 3 2; }
+.bd-spark-tick { stroke: #333; stroke-width: 1.5; }
+.bd-spark-tick.bd-spark-good { stroke: #15803d; }
+.bd-spark-tick.bd-spark-bad  { stroke: #b91c1c; }
+
+.bd-spark-foot {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.66rem;
+  line-height: 1.3;
+  color: #aaa;
+  font-variant-numeric: tabular-nums;
 }
 
 .bd-all {

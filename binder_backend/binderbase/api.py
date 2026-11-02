@@ -443,6 +443,12 @@ SUMMARY_HISTOGRAMS = {
     "min_interaction_pae": (0.0, 30.0, 20),
     "bb_target_aligned_rmsd_design": (0.0, 40.0, 20),
     "designfolding_bb_rmsd": (0.0, 20.0, 20),
+    # Binned on the scale the column is STORED in, which for complex_plddt is
+    # 0-1 (0.58-0.84 across the production corpus) and not the 0-100 the
+    # glossary and the viewers use. The binder modal draws a design's value
+    # against these edges as a ratio, so the two agree without a conversion;
+    # anything that labels an axis from them has to rescale first.
+    "complex_plddt": (0.0, 1.0, 20),
 }
 
 ENRICHMENT_K = (10, 30, 50, 100, 200)

@@ -106,6 +106,94 @@ export function HistogramChart({
   );
 }
 
+/**
+ * One design's value against its run's distribution, at tile size.
+ *
+ * The same histogram the run page charts, drawn small enough to sit under a
+ * number in the binder modal. It answers the question a bare metric cannot:
+ * 2.1 A of placement RMSD is a near miss in a run that mostly landed at 1.4
+ * and the best design in a run that mostly landed at 12.
+ *
+ * Deliberately no percentile. The bins are wide -- placement spans 0-40 A in
+ * twenty of them, so the first bin alone can hold most of a run -- and a
+ * number interpolated inside one would claim a precision the payload does not
+ * have. Where the tick falls among the bars is exactly as much as these bins
+ * can honestly say.
+ */
+
+const SPARK_W = 160;
+const SPARK_H = 26;
+const SPARK_PAD_T = 4;
+
+export function MetricSparkline({
+  hist, value, verdict, label, markAt,
+}: {
+  hist: Histogram | undefined;
+  /** In the histogram's own units, which are not always the displayed ones. */
+  value: number | null | undefined;
+  verdict?: "good" | "bad";
+  /** For the aria-label, since the tile's own text is not read with it. */
+  label: string;
+  /** The threshold, where the metric has one. */
+  markAt?: number;
+}) {
+  // Nothing to compare against, or nothing to place: the tile is complete
+  // without this, so render nothing rather than an empty frame.
+  if (!hist || !hist.n || value == null) return null;
+
+  const { edges, counts, n } = hist;
+  const lo = edges[0];
+  const hi = edges[edges.length - 1];
+  if (!(hi > lo)) return null;
+
+  const max = Math.max(...counts, 1);
+  const plotH = SPARK_H - SPARK_PAD_T;
+  const barW = SPARK_W / counts.length;
+  const xOf = (v: number) =>
+    ((Math.min(Math.max(v, lo), hi) - lo) / (hi - lo)) * SPARK_W;
+  const x = xOf(value);
+  // The endpoint clamps out-of-range values into the end bins, so the tick is
+  // clamped the same way and says so rather than sitting silently on the edge.
+  const clamped = value < lo ? "below" : value > hi ? "above" : null;
+
+  return (
+    <div className="bd-spark"
+         title={`${label}: this design against ${n.toLocaleString()} in the run`}>
+      <svg viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} className="bd-spark-svg"
+           preserveAspectRatio="none" role="img"
+           aria-label={`${label} against ${n.toLocaleString()} designs in this run`}>
+        {/* A floor for the tick to stand on. Out in a tail the bars are a
+            fraction of a pixel tall, and without this the tick reads as
+            floating in a blank box rather than as "almost nothing is here". */}
+        <line className="bd-spark-base" vectorEffect="non-scaling-stroke"
+              x1={0} y1={SPARK_H - 0.5} x2={SPARK_W} y2={SPARK_H - 0.5} />
+        {counts.map((c, i) => {
+          const h = (c / max) * plotH;
+          return (
+            <rect key={i} className="bd-spark-bar"
+                  x={i * barW} y={SPARK_H - h}
+                  width={Math.max(barW - 0.6, 0.4)} height={h} />
+          );
+        })}
+        {/* The box is stretched to the tile's width, so the strokes opt out of
+            scaling: without this a 1px tick is drawn 1.2px wide and fuzzy. */}
+        {markAt != null && markAt > lo && markAt < hi && (
+          <line className="bd-spark-mark" vectorEffect="non-scaling-stroke"
+                x1={xOf(markAt)} y1={0} x2={xOf(markAt)} y2={SPARK_H} />
+        )}
+        <line className={`bd-spark-tick${verdict ? ` bd-spark-${verdict}` : ""}`}
+              vectorEffect="non-scaling-stroke"
+              x1={x} y1={0} x2={x} y2={SPARK_H} />
+      </svg>
+      <span className="bd-spark-foot">
+        {clamped
+          ? `${clamped} the plotted range · n = ${n.toLocaleString()}`
+          : `n = ${n.toLocaleString()} in this run`}
+      </span>
+    </div>
+  );
+}
+
 export function EnrichmentChart({
   curve,
   baseRate,

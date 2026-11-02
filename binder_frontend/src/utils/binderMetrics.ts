@@ -49,6 +49,45 @@ export interface Headline {
   note?: string;
   /** Whether it clears the threshold, where there is one. */
   verdict?: "good" | "bad";
+  /**
+   * The run summary histogram this metric is drawn against, and the value in
+   * that histogram's units.
+   *
+   * `raw` is not always `value` parsed back: pLDDT is displayed 0-100 and
+   * binned 0-1. The sparkline only ever asks where the value falls between the
+   * first and last edge, and that ratio is scale-free, so the tick lands in
+   * the right place as long as both come from the same column -- which is what
+   * keeping the unformatted number here guarantees.
+   */
+  histKey?: string;
+  raw?: number | null;
+  /** The threshold, in the histogram's units, for metrics that have one. */
+  mark?: number;
+}
+
+/**
+ * The pipeline's own pass/fail, which is not one of the measurements.
+ *
+ * It used to sit in the headline grid as a sixth tile, which was wrong twice
+ * over. It is a verdict about the five rather than a sixth thing measured --
+ * no unit, no distribution, nothing to compare against another method -- and a
+ * sixth tile did not fit the row, so it landed alone with four empty cells
+ * beside it. It belongs with rank and status in the modal header, which is
+ * where the design's identity is stated.
+ */
+export interface FilterVerdict {
+  passed: boolean;
+  label: string;
+  note: string;
+}
+
+export function filterVerdict(b: Binder): FilterVerdict | null {
+  if (b.pass_filters == null) return null;
+  return {
+    passed: b.pass_filters,
+    label: b.pass_filters ? "filters passed" : "filters failed",
+    note: "the pipeline's own verdict, not comparable across methods",
+  };
 }
 
 function fixed(v: number | null | undefined, places: number): string | null {
@@ -56,12 +95,18 @@ function fixed(v: number | null | undefined, places: number): string | null {
 }
 
 /**
- * The six numbers that answer "is this design any good", in that order.
+ * The five numbers that answer "is this design any good", in that order.
  *
  * All of them come from promoted columns rather than the raw blob, so they are
  * typed, consistently rounded, and present even for a run whose CSV named them
  * differently. Placement leads because it is the metric that matters most and
  * the hardest to pass -- see the About glossary, which defines every term here.
+ *
+ * Each carries the name of its run-summary histogram. A number on its own says
+ * almost nothing here: 2.1 A of placement RMSD is a near miss in a run that
+ * mostly landed at 1.4 and the best design in a run that mostly landed at 12.
+ * The run already ships those distributions for the page's charts, so the
+ * comparison costs no request.
  */
 export function headlineMetrics(b: Binder): Headline[] {
   const placement = b.bb_target_aligned_rmsd_design;
@@ -74,6 +119,9 @@ export function headlineMetrics(b: Binder): Headline[] {
       note: `Å, target-aligned · under ${PLACEMENT_A} is placed`,
       verdict: placement == null ? undefined
         : placement < PLACEMENT_A ? "good" : "bad",
+      histKey: "bb_target_aligned_rmsd_design",
+      raw: placement,
+      mark: PLACEMENT_A,
     },
     {
       label: "Monomer",
@@ -81,28 +129,31 @@ export function headlineMetrics(b: Binder): Headline[] {
       note: `Å, folded alone · under ${MONOMER_A} is self-consistent`,
       verdict: monomer == null ? undefined
         : monomer < MONOMER_A ? "good" : "bad",
+      histKey: "designfolding_bb_rmsd",
+      raw: monomer,
+      mark: MONOMER_A,
     },
     {
       label: "Interface ipTM",
       value: fixed(b.design_to_target_iptm, 3),
       note: "0–1 · higher is better",
+      histKey: "design_to_target_iptm",
+      raw: b.design_to_target_iptm,
     },
     {
       label: "Interaction PAE",
       value: fixed(b.min_interaction_pae, 2),
       note: "Å, across the interface · lower is better",
+      histKey: "min_interaction_pae",
+      raw: b.min_interaction_pae,
     },
     {
       label: "pLDDT",
       value: fixed(plddt, 1),
       note: "0–100 · local confidence, not binding",
-    },
-    {
-      label: "Filters",
-      value: b.pass_filters == null ? null : b.pass_filters ? "passed" : "failed",
-      note: "the pipeline's own verdict · not comparable across methods",
-      verdict: b.pass_filters == null ? undefined
-        : b.pass_filters ? "good" : "bad",
+      // Binned as stored, i.e. 0-1, while `value` is the 0-100 reading.
+      histKey: "complex_plddt",
+      raw: b.complex_plddt,
     },
   ];
 }

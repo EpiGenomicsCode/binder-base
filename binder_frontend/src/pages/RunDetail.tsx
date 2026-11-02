@@ -192,10 +192,13 @@ export default function RunDetailPage() {
       <div className="run-section-title">Binders</div>
       {/* The same ranges the PAE band uses, so the structure view and the
           per-design complex view cannot disagree about where the epitope is. */}
+      {/* The same distributions the charts above are drawn from, so a binder's
+          modal can place that design inside its run without a second request. */}
       <BindersTable
         runId={summary.run_id}
         epitope={parseRanges(target.epitope)}
         masked={parseRanges(target.masked_faces)}
+        histograms={summary.histograms}
       />
 
       {/* 6. Provenance, collapsed */}
