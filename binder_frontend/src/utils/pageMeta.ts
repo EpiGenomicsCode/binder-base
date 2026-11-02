@@ -83,12 +83,23 @@ export interface PageMeta {
    * /proteins and search permutations do not each become their own URL.
    */
   canonicalPath?: string;
+  /**
+   * Keep this URL out of search results, and assert no canonical for it.
+   *
+   * For the 404 route. nginx serves the SPA shell for every unknown path, so
+   * a mistyped or stale URL arrives with a 200 and looks indexable; a robots
+   * meta is the only part of that response React can still influence. A
+   * canonical would be worse than nothing here -- it would state that the
+   * nonsense URL is the preferred address for the page.
+   */
+  noindex?: boolean;
 }
 
 export default function usePageMeta({
   title,
   description,
   canonicalPath,
+  noindex = false,
 }: PageMeta): void {
   const { pathname } = useLocation();
   const path = normalisePath(canonicalPath ?? pathname);
@@ -110,7 +121,33 @@ export default function usePageMeta({
     );
   }, [text]);
 
+  // Both of these remove rather than skip. This hook writes on every
+  // navigation precisely because a route that inherits the previous page's
+  // meta is wrong silently -- leaving a noindex behind after one visit to a
+  // bad URL would de-list whatever the reader opened next.
   useEffect(() => {
+    const el = document.head.querySelector('meta[name="robots"]');
+    if (!noindex) {
+      el?.remove();
+      return;
+    }
+    upsert<HTMLMetaElement>(
+      'meta[name="robots"]',
+      () => {
+        const m = document.createElement("meta");
+        m.setAttribute("name", "robots");
+        return m;
+      },
+      (m) => m.setAttribute("content", "noindex, follow")
+    );
+  }, [noindex]);
+
+  useEffect(() => {
+    const existing = document.head.querySelector('link[rel="canonical"]');
+    if (noindex) {
+      existing?.remove();
+      return;
+    }
     const origin = siteOrigin();
     if (!origin) return;
     upsert<HTMLLinkElement>(
@@ -122,7 +159,7 @@ export default function usePageMeta({
       },
       (el) => el.setAttribute("href", `${origin}${path}`)
     );
-  }, [path]);
+  }, [path, noindex]);
 }
 
 /**

@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getRunBinders } from "../api/client";
-import type { Binder } from "../types";
+import type { Binder, Histogram } from "../types";
 import CifViewer from "./CifViewer";
 import ExportMenu from "./ExportMenu";
+import { MetricSparkline } from "./RunCharts";
 import { LinkedSequenceBlock, statusClass } from "./SequenceBlock";
 import {
-  compositionView, filterView, groupMetrics, headlineMetrics, liabilityView,
+  compositionView, filterVerdict, filterView, groupMetrics, headlineMetrics,
+  liabilityView,
 } from "../utils/binderMetrics";
 
 interface BinderModalProps {
@@ -14,9 +16,13 @@ interface BinderModalProps {
   /** The run's epitope and crop faces, in the target's numbering. */
   epitope?: [number, number][];
   masked?: [number, number][];
+  /** The run's own distributions, for placing this design inside them. */
+  histograms?: Record<string, Histogram>;
 }
 
-function BinderModal({ binder, onClose, epitope = [], masked = [] }: BinderModalProps) {
+function BinderModal({
+  binder, onClose, epitope = [], masked = [], histograms,
+}: BinderModalProps) {
   const [copied, setCopied] = useState(false);
   const [hoverResno, setHoverResno] = useState<number | null>(null);
   // The complex panel answers one of two questions: how confident is the model
@@ -44,17 +50,29 @@ function BinderModal({ binder, onClose, epitope = [], masked = [] }: BinderModal
   // Both viewers key off the binder chain's length: one to isolate it, one to
   // decide which chain of the complex the sequence block hovers against.
   const binderLength = binder.binder_length ?? binder.binder_sequence.length;
+  const verdict = filterVerdict(binder);
 
   return (
     <div className="cif-modal-overlay" onClick={onClose}>
       <div className="cif-modal" onClick={(e) => e.stopPropagation()}>
+        {/* Identity, not measurement: which design this is and what the
+            pipeline concluded about it. Design-to-target ipTM used to sit here
+            too and is now only in the metrics grid below, which states it with
+            its range and draws it against the run -- printing it twice, once
+            without either, was the duplication that made the header look like
+            a scoreboard. */}
         <div className="cif-modal-header">
           <span>RANK #{binder.final_rank}</span>
           <span>QUALITY SCORE = {binder.quality_score?.toFixed(3) ?? "—"}</span>
-          <span> DESIGN TO TARGET IPTM = {binder.design_to_target_iptm?.toFixed(3) ?? "—"}</span>
           {binder.status
               ? <span className={`status-pill ${statusClass(binder.status)}`}>{binder.status}</span>
-              : null}          
+              : null}
+          {verdict && (
+            <span className={`verdict-pill ${verdict.passed ? "v-pass" : "v-fail"}`}
+                  title={verdict.note}>
+              {verdict.label}
+            </span>
+          )}
           <div className="cif-modal-header-right">
             <button className="cif-modal-close" onClick={onClose}>✕</button>
           </div>
@@ -132,7 +150,7 @@ function BinderModal({ binder, onClose, epitope = [], masked = [] }: BinderModal
         ) : (
           <p className="cif-modal-empty">No CIF files available for this binder.</p>
         )}
-        <BinderDetails binder={binder} />
+        <BinderDetails binder={binder} histograms={histograms} />
       </div>
     </div>
   );
@@ -283,18 +301,25 @@ function Filters({ metrics }: { metrics: RawMetrics }) {
 /**
  * What the pipeline measured.
  *
- * The six metrics BinderBase records for every design regardless of the tool
+ * The five metrics BinderBase records for every design regardless of the tool
  * that produced it come first -- the promoted columns, which are the ones with
  * units, thresholds and a definition in the About glossary. Calling them the
  * ones that matter would be a claim about the science rather than a
  * description of the section; what is true of them is that they are the
  * comparable ones.
  *
+ * Each sits above its run's own distribution, because none of these numbers
+ * means much alone. The pipeline's pass/fail used to be a sixth tile and is
+ * now a pill in the header: it is a verdict about the five, with no unit and
+ * no distribution to be drawn against.
+ *
  * Everything else -- 254 columns for a BoltzGen run -- goes under a
  * disclosure, grouped, because it was previously one flat list of raw column
  * names in CSV order and nothing in it could be found.
  */
-function BinderDetails({ binder }: { binder: Binder }) {
+function BinderDetails({
+  binder, histograms,
+}: { binder: Binder; histograms?: Record<string, Histogram> }) {
   const [open, setOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const headline = headlineMetrics(binder);
@@ -312,6 +337,15 @@ function BinderDetails({ binder }: { binder: Binder }) {
                 {m.value ?? "—"}
               </span>
               {m.note && <span className="bd-note">{m.note}</span>}
+              {/* Absent when the modal was opened without a run summary, or
+                  when the run recorded no value: the tile still reads. */}
+              <MetricSparkline
+                hist={m.histKey ? histograms?.[m.histKey] : undefined}
+                value={m.raw}
+                verdict={m.verdict}
+                markAt={m.mark}
+                label={m.label}
+              />
             </dd>
           </div>
         ))}
@@ -413,10 +447,14 @@ export default function BindersTable({
   runId,
   epitope = [],
   masked = [],
+  histograms,
 }: {
   runId: number;
   epitope?: [number, number][];
   masked?: [number, number][];
+  /** The run summary's distributions, passed to the modal so a design can be
+   *  placed in its run. The page has already fetched them for its charts. */
+  histograms?: Record<string, Histogram>;
 }) {
   const [selectedBinder, setSelectedBinder] = useState<Binder | null>(null);
   const [sortKey, setSortKey] = useState<BinderSortKey>("rank");
@@ -717,6 +755,7 @@ export default function BindersTable({
           onClose={() => setSelectedBinder(null)}
           epitope={epitope}
           masked={masked}
+          histograms={histograms}
         />
       )}
     </>

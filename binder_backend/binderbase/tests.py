@@ -479,8 +479,15 @@ class RunSummaryTestCase(TestCase):
         self.assertEqual(set(d["enrichment"]), {"base_rate", "curve"})
         self.assertEqual(set(d["enrichment"]["curve"][0]), {"k", "hit_rate", "fold"})
 
-    def test_summary_histogram_keys_match_the_run_page_charts(self):
-        """RunDetail.tsx renders exactly these four, keyed by name.
+    def test_summary_histogram_keys_match_what_the_frontend_draws(self):
+        """Two consumers read these by name, so a rename has to fail here.
+
+        RunDetail.tsx charts the first four as the run's distributions;
+        binderMetrics.ts keys all five off `histKey` to draw a design's own
+        value against its run inside the binder modal. complex_plddt is in the
+        payload for the second consumer and is deliberately not on the run
+        page, because it is stored 0-1 and an axis labelled from these edges
+        would contradict the 0-100 the glossary defines.
 
         Note the underscore in designfolding_bb_rmsd: the metric is spelled
         'designfolding-bb_rmsd' in the pipeline CSV, and the hyphen is not a
@@ -491,7 +498,8 @@ class RunSummaryTestCase(TestCase):
         self.assertEqual(
             set(h),
             {"design_to_target_iptm", "min_interaction_pae",
-             "bb_target_aligned_rmsd_design", "designfolding_bb_rmsd"})
+             "bb_target_aligned_rmsd_design", "designfolding_bb_rmsd",
+             "complex_plddt"})
         for name, hist in h.items():
             self.assertEqual(set(hist),
                              {"edges", "counts", "n", "underflow", "overflow"},

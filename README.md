@@ -455,7 +455,7 @@ Use a systemd service or supervisor to keep gunicorn running.
 
 ### 5. Configure nginx
 
-Copy `nginx.conf` from the repo root to `/etc/nginx/sites-available/binderbase` (adjust `server_name`), then enable it:
+Copy `misc/nginx.conf` to `/etc/nginx/sites-available/binderbase` (adjust `server_name`), then enable it:
 
 ```bash
 ln -s /etc/nginx/sites-available/binderbase /etc/nginx/sites-enabled/
@@ -468,6 +468,11 @@ The config serves:
 - `/api/`, `/admin/` — proxied to gunicorn on port 8000
 - `/media/` — files from `MEDIA_ROOT` (`/opt/binder/files/`)
 - `/static/` — Django admin static files from `binder_backend/static/`
+
+It also enables gzip and sets cache headers. On a server that is already
+running and terminating TLS, merge those directives into the existing block
+rather than copying the file over it — see "Compression and caching" in
+[misc/deploy/DEPLOY.md](misc/deploy/DEPLOY.md).
 
 ### 6. Create a superuser
 
