@@ -4012,3 +4012,64 @@ table .v-none { color: #b91c1c; font-weight: 600; }
   color: #888;
   margin-top: 0.05rem;
 }
+
+/* ── 404 ──────────────────────────────────────────────────────────────────
+   Centred and short. The point of the page is the way out of it, so the
+   links carry more weight than the apology. */
+.nf-page {
+  max-width: 34rem;
+  margin: 3.5rem auto 4.5rem;
+  text-align: center;
+}
+
+.nf-code {
+  margin: 0;
+  font-size: 3.2rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--gray-border, #dcdcdc);
+  font-variant-numeric: tabular-nums;
+}
+
+.nf-title {
+  margin: 0.5rem 0 0.9rem;
+  font-size: 1.4rem;
+  color: #222;
+}
+
+/* The address can be long and has no spaces, so it has to be allowed to break
+   or it pushes the page sideways on a phone. */
+.nf-path {
+  margin: 0 0 1rem;
+}
+
+.nf-path code {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0.25rem 0.6rem;
+  background: #f5f5f5;
+  border: 1px solid #ebebeb;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  color: #555;
+  overflow-wrap: anywhere;
+}
+
+.nf-suggest {
+  margin: 0 0 1.1rem;
+  font-size: 0.95rem;
+}
+
+.nf-help {
+  margin: 0 0 1rem;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: #666;
+}
+
+.nf-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+}

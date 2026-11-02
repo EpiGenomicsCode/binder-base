@@ -14,6 +14,7 @@ const About = lazy(() => import("./pages/About"));
 const StructurePrep = lazy(() => import("./pages/StructurePrep"));
 const RunDetail = lazy(() => import("./pages/RunDetail"));
 const RunList = lazy(() => import("./pages/RunList"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -39,6 +40,10 @@ export default function App() {
               <Route path="/runs/:id" element={<RunDetail />} />
               <Route path="/about" element={<About />} />
               <Route path="/structure-prep" element={<StructurePrep />} />
+              {/* Last, and it must stay last. Without it React Router matched
+                  nothing for an unknown path and rendered nothing, so a stale
+                  or mistyped URL showed navbar, blank, footer. */}
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
         </div>

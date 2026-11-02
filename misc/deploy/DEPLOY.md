@@ -158,6 +158,99 @@ time to run it is now.
 
 ---
 
+## Compression and caching
+
+A one-time nginx change, separate from any release. `misc/nginx.conf` carries
+it; this section is for applying it to the server that is already running.
+
+Measured against the live site on 2026-11-01: nothing was compressed and
+nothing carried a `Cache-Control` header.
+
+| | served | gzipped |
+|---|---|---|
+| `molstar.js` | 4,748 KB | 1,348 KB |
+| `index.js` | 178 KB | 58 KB |
+| `index.css` | 112 KB | 17 KB |
+| a PAE matrix | 321 KB | 35 KB |
+| `/api/proteins` | 179 KB | 48 KB |
+| `/api/runs` | 79 KB | 10 KB |
+| a binder CIF | 121 KB | 38 KB |
+| **run page, first load** | **5.0 MB** | **1.4 MB** |
+
+Django runs no `GZipMiddleware`, so nginx is the only thing in the stack that
+can compress the API.
+
+### Merge, do not overwrite
+
+The live server terminates TLS and its config has a block this file does not,
+usually written by certbot. Copying `misc/nginx.conf` over it would drop that
+and take the site off HTTPS. Add these to the **existing** server block:
+
+- the `gzip*` directives (`gzip_proxied any` is what reaches the proxied API)
+- `location = /index.html` with `Cache-Control: no-cache`
+- `location /assets/` with `try_files $uri =404` and a one-year `immutable`
+- the `~* ^/media/(.+\.cif)$` location, for the type and the compression
+- `Cache-Control` on `/media/` and `/static/`
+
+`location /` keeps `try_files $uri /index.html`. The `/assets/` block must sit
+beside it, not inside it.
+
+**Check for existing `add_header` first.** nginx does not merge `add_header`
+across levels: a location that sets one drops every header inherited from the
+server block. If the live config sets security headers there — certbot adds
+HSTS, and a hardened server may have `X-Content-Type-Options` and friends —
+then adding the `Cache-Control` locations above would silently strip them from
+assets, media and static files. Repeat those headers inside each new location,
+or move the whole set into each one. `curl -sI` on an asset before and after
+the reload, and compare.
+
+### Why /assets/ answers 404 rather than falling through
+
+Today it does not, and that is the bug:
+
+```
+$ curl -o /dev/null -w '%{http_code} %{content_type} %{size_download}\n' \
+    https://binderbase.org/assets/index-DOESNOTEXIST.js
+200 text/html 2204
+```
+
+`try_files $uri /index.html` catches asset URLs too, so a browser still
+holding an `index.html` from before a deploy asks for a chunk that no longer
+exists and is handed the HTML shell with a `200`. The failure reaches the user
+as a JavaScript syntax error with nothing in the network tab to explain it,
+which is why a deploy can appear to break the site for one person and nobody
+else.
+
+### Applying it
+
+As an administrator:
+
+```bash
+nginx -t && systemctl reload nginx
+```
+
+A reload, not a restart: no connection is dropped, and nothing about Django,
+gunicorn or the database is involved. If `nginx -t` fails, nothing has changed
+yet.
+
+### Checking it took
+
+```bash
+# Content-Encoding: gzip on a static asset, on the API, and on a structure
+curl -sI -H 'Accept-Encoding: gzip' https://binderbase.org/assets/<hashed>.js | grep -i 'content-encoding\|cache-control'
+curl -sI -H 'Accept-Encoding: gzip' https://binderbase.org/api/runs          | grep -i content-encoding
+curl -sI -H 'Accept-Encoding: gzip' https://binderbase.org/media/<a>.cif     | grep -i 'content-encoding\|content-type'
+
+# a missing asset must now be a 404, and index.html must not be cached
+curl -o /dev/null -w '%{http_code}\n' https://binderbase.org/assets/nope.js   # expect 404
+curl -sI https://binderbase.org/ | grep -i cache-control                      # expect no-cache
+```
+
+An unknown *page* must still answer 200 with the SPA shell — `/nope` is the
+app's own 404 route, not nginx's. Only `/assets/` 404s.
+
+---
+
 ## What is still missing, in priority order
 
 1. **No tests.** The repo has none, so nothing catches a regression before it
