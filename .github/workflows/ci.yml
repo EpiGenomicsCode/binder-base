@@ -1,0 +1,140 @@
+# Build the frontend and run the backend tests on every pull request.
+#
+# WHY THIS EXISTS
+#
+# v1.9.0 shipped a viewer change that told Mol* a BinaryCIF file was text
+# mmCIF. v1.9.1 fixed it by passing "bcif" as the trajectory format, which is
+# not one of the twelve values BuiltInTrajectoryFormat allows. Both are errors
+# `tsc` reports in about two seconds, and both reached a tag -- because the
+# first time the frontend was built was inside binderbase_deploy.sh, on the
+# production server, after the database had already been dumped and the target
+# checked out.
+#
+# That is the most expensive possible place to find a type error. The build
+# aborts before dist/ is swapped, so the site survives, but the repo is left on
+# a tag whose frontend never compiled and someone has to work out why.
+#
+# Two jobs, deliberately independent: a frontend type error should not hide a
+# backend test failure, and neither needs the other to run.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A second push to the same PR makes the first run's answer worthless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: frontend build (tsc + vite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: binder_frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned to the major that production runs. Vite 6 accepts 18, 20 and
+      # 22+, so this is not the only version that works -- it is the one whose
+      # behaviour we can reason about from the deploy, and CI agreeing with the
+      # server is the entire point of running it.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: binder_frontend/package-lock.json
+
+      # ci, not install: install would silently update package-lock.json and
+      # test something other than what the deploy will build.
+      - run: npm ci
+
+      # `npm run build` is `tsc && vite build`. tsc is the half that catches
+      # the bugs this file was written for; vite build is the half that catches
+      # an import that type-checks and still cannot be bundled.
+      - run: npm run build
+
+  backend:
+    name: backend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: binder_backend
+
+    # Postgres rather than sqlite. The API already reaches for Postgres-only
+    # SQL in places, and a test suite that passes on a different engine from
+    # production is answering a question nobody asked.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: binderbase_test
+          POSTGRES_USER: binderrunner
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    # settings.py calls environ.Env.read_env(), which warns and carries on when
+    # there is no .env file, after which every env() call falls through to the
+    # process environment. So CI supplies the settings directly and never needs
+    # a .env -- which is what .gitignore wants anyway.
+    #
+    # This is EVERY env() call in settings.py that has no default, enumerated
+    # from the file rather than remembered -- an incomplete list does not fail
+    # a test, it fails at import with ImproperlyConfigured before anything
+    # runs, which is what happened to the first version of this file (it was
+    # missing ADMIN_URL). If you add an env() call to settings.py without a
+    # default, add it here too. The list CLAUDE.md gives is already out of date.
+    #
+    # DEBUG stays False so the job exercises the same branches production does
+    # -- which is why DEFAULT_FROM_EMAIL is needed at all, since settings.py
+    # only reads it in the non-DEBUG arm.
+    env:
+      SECRET_KEY: ci-not-a-real-secret
+      DEBUG: 'False'
+      # urls.py mounts the admin at f'{ADMIN_URL}/'. Production obfuscates this
+      # path; CI must not reuse that value, and does not need to -- nothing
+      # here asserts on it.
+      ADMIN_URL: ci-admin
+      MEDIA_ROOT: /tmp/binderbase-ci-media
+      DATABASE_ENGINE: django.db.backends.postgresql
+      DATABASE_NAME: binderbase_test
+      DATABASE_USER: binderrunner
+      DATABASE_PASSWORD: postgres
+      DATABASE_HOST: localhost
+      DATABASE_PORT: '5432'
+      CSRF_TRUSTED_ORIGINS: http://localhost
+      # .invalid is reserved by RFC 2606, so this can never be a real address.
+      DEFAULT_FROM_EMAIL: ci@binderbase.invalid
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'   # what /opt/binder/venv runs
+          cache: pip
+          cache-dependency-path: binder_backend/requirements.txt
+
+      # The same pinned file binderbase_deploy.sh installs, so a dependency
+      # that cannot resolve fails here rather than halfway through a deploy.
+      # This is also what proves biotite installs cleanly on a fresh machine.
+      - run: pip install -r requirements.txt
+
+      - name: django check
+        run: python manage.py check
+
+      # Catches a model edited without a migration, which otherwise surfaces as
+      # a deploy that applies nothing and a column that is not there.
+      - name: no missing migrations
+        run: python manage.py makemigrations --check --dry-run
+
+      - run: python manage.py test binderbase
