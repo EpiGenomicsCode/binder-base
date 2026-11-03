@@ -294,17 +294,21 @@ export default function CifViewer({
       // happens on the loaded structure further down, so nothing here needs to
       // know about it -- and the browser cache serves the second viewer of the
       // same complex, as it did when this fetched the file by hand.
-      // The format comes from the path because the database legitimately holds
-      // both: backfill_bcif converts run by run, and a part-converted database
-      // is a supported state, not a transient one to be hurried through.
+      // "mmcif" for BinaryCIF too. There is no "bcif" trajectory format in
+      // Mol* -- BuiltInTrajectoryFormat does not have one, and the compiler
+      // says so. BinaryCIF is the same CIF data model in MessagePack, so the
+      // mmcif provider parses both and the third argument is what says which:
+      // ParseCif accepts Data.String and Data.Binary alike. This is how Mol*'s
+      // own viewer loads RCSB's .bcif.
       //
-      // Mol* is told the format explicitly rather than sniffing Content-Type,
-      // so telling it the wrong one is silent -- a .bcif handed to the mmCIF
-      // text parser yields no model and an empty viewport, with nothing logged
-      // and no failed request to see in the network tab.
+      // isBinary comes from the path because the database legitimately holds
+      // both extensions: backfill_bcif converts run by run, and a
+      // part-converted database is a supported state, not a window to hurry
+      // through. Getting it wrong is silent -- Mol* is told, not asked, so a
+      // .bcif read as text yields no model and an empty viewport, with nothing
+      // logged and no failed request in the network tab.
       const binary = cifPath.endsWith(".bcif");
-      await v.loadStructureFromUrl(
-        `/media/${cifPath}`, binary ? "bcif" : "mmcif", binary);
+      await v.loadStructureFromUrl(`/media/${cifPath}`, "mmcif", binary);
       if (disposed) return;
 
       const { plugin } = v;
