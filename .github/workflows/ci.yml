@@ -86,9 +86,24 @@ jobs:
     # there is no .env file, after which every env() call falls through to the
     # process environment. So CI supplies the settings directly and never needs
     # a .env -- which is what .gitignore wants anyway.
+    #
+    # This is EVERY env() call in settings.py that has no default, enumerated
+    # from the file rather than remembered -- an incomplete list does not fail
+    # a test, it fails at import with ImproperlyConfigured before anything
+    # runs, which is what happened to the first version of this file (it was
+    # missing ADMIN_URL). If you add an env() call to settings.py without a
+    # default, add it here too. The list CLAUDE.md gives is already out of date.
+    #
+    # DEBUG stays False so the job exercises the same branches production does
+    # -- which is why DEFAULT_FROM_EMAIL is needed at all, since settings.py
+    # only reads it in the non-DEBUG arm.
     env:
       SECRET_KEY: ci-not-a-real-secret
       DEBUG: 'False'
+      # urls.py mounts the admin at f'{ADMIN_URL}/'. Production obfuscates this
+      # path; CI must not reuse that value, and does not need to -- nothing
+      # here asserts on it.
+      ADMIN_URL: ci-admin
       MEDIA_ROOT: /tmp/binderbase-ci-media
       DATABASE_ENGINE: django.db.backends.postgresql
       DATABASE_NAME: binderbase_test
@@ -97,6 +112,8 @@ jobs:
       DATABASE_HOST: localhost
       DATABASE_PORT: '5432'
       CSRF_TRUSTED_ORIGINS: http://localhost
+      # .invalid is reserved by RFC 2606, so this can never be a real address.
+      DEFAULT_FROM_EMAIL: ci@binderbase.invalid
 
     steps:
       - uses: actions/checkout@v4
