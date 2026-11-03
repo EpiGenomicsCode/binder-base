@@ -61,6 +61,13 @@ class Command(BaseCommand):
                  "in place. Halves the saving; useful for a first pass you want "
                  "to be able to eyeball before committing to.")
         parser.add_argument(
+            "--reconvert", action="store_true",
+            help="Rewrite design structures that are ALREADY .bcif. Needed once, "
+                 "to repair files written before the null-mask fix: those lost "
+                 "CIF's '.' and '?' markers, which broke pLDDT colouring. Where "
+                 "the .cif is still present it is re-converted from text; where "
+                 "it is not, the .bcif is repaired in place.")
+        parser.add_argument(
             "--batch-size", type=int, default=5000,
             help="Rows per bulk_update (default: %(default)s).")
         parser.add_argument(
@@ -95,7 +102,7 @@ class Command(BaseCommand):
         if dry_run:
             self.stdout.write(self.style.NOTICE("[dry run] nothing written\n"))
 
-        converted = repointed = skipped = failed = 0
+        converted = repointed = skipped = failed = reconverted = 0
         bytes_before = bytes_after = 0
         worst = 0.0
 
@@ -112,6 +119,21 @@ class Command(BaseCommand):
                     f"{label}: run directory missing ({run_dir}) - skipped"))
                 failed += 1
                 continue
+
+            # Before the conversion pass, so a run that is already .bcif is
+            # fixed by the same invocation that would otherwise skip it
+            # entirely for having nothing left to convert.
+            if options["reconvert"]:
+                redone, fixed = self._reconvert(run_dir, options, dry_run)
+                if redone or fixed:
+                    self.stdout.write(self.style.SUCCESS(label))
+                    if redone:
+                        self.stdout.write(
+                            f"  {redone} re-converted from the text CIF")
+                    if fixed:
+                        self.stdout.write(
+                            f"  {fixed} repaired in place (no text CIF to use)")
+                reconverted += redone + fixed
 
             pending = list(bcif.design_cifs(run_dir))
             if not pending:
@@ -173,13 +195,78 @@ class Command(BaseCommand):
                         os.remove(src)
 
         verb = "would convert" if dry_run else "converted"
-        self.stdout.write(self.style.SUCCESS(
-            f"\nDone. {verb}: {converted}  rows repointed: {repointed}  "
-            f"runs unchanged: {skipped}  failed: {failed}"))
+        summary = (f"\nDone. {verb}: {converted}  rows repointed: {repointed}  "
+                   f"runs unchanged: {skipped}  failed: {failed}")
+        if options["reconvert"]:
+            summary += f"  rewritten: {reconverted}"
+        self.stdout.write(self.style.SUCCESS(summary))
         if bytes_after:
             self.stdout.write(
                 f"{bytes_before / 1e6:.1f} MB -> {bytes_after / 1e6:.1f} MB "
                 f"({bytes_before / bytes_after:.2f}x), max coord delta {worst:.6f} A")
+
+    # -- repairing what v1.9.0 wrote ----------------------------------------
+
+    def _reconvert(self, run_dir, options, dry_run):
+        """Rewrite .bcif files that lost their null masks.
+
+        Two routes, and the preference is not a style choice. Re-converting
+        from the .cif goes through convert(), which re-derives every column
+        from the authoritative text and then verifies both the masks and the
+        coordinates. repair() infers the masks from the '.' and '?' tokens the
+        broken converter left in the data -- correct for the defect it exists
+        for, but an inference rather than a re-derivation.
+
+        So: text if we have it, inference only if we do not.
+        """
+        redone = fixed = 0
+        for path in bcif.design_bcifs(run_dir):
+            source = path[: -len(".bcif")] + ".cif"
+            if os.path.isfile(source):
+                if dry_run:
+                    redone += 1
+                    continue
+                try:
+                    bcif.convert(source, path, options["tolerance"])
+                except Exception as exc:                       # noqa: BLE001
+                    self.stdout.write(self.style.WARNING(
+                        f"  re-conversion failed ({exc}): "
+                        f"{os.path.relpath(path, run_dir)}"))
+                    continue
+                redone += 1
+            else:
+                if dry_run:
+                    # repair() reports 0 for a file that is already correct, so
+                    # counting it here without reading would overstate the work.
+                    try:
+                        if self._needs_repair(path):
+                            fixed += 1
+                    except Exception:                          # noqa: BLE001
+                        pass
+                    continue
+                try:
+                    if bcif.repair(path):
+                        fixed += 1
+                except Exception as exc:                       # noqa: BLE001
+                    self.stdout.write(self.style.WARNING(
+                        f"  repair failed ({exc}): "
+                        f"{os.path.relpath(path, run_dir)}"))
+        return redone, fixed
+
+    @staticmethod
+    def _needs_repair(path):
+        """True if any column still carries a literal '.' or '?' and no mask."""
+        import numpy as np
+        import biotite.structure.io.pdbx as pdbx
+
+        for _bn, block in pdbx.BinaryCIFFile.read(path).items():
+            for _cn, category in block.items():
+                for _col_name, column in category.items():
+                    array = column.data.array
+                    if column.mask is None and array.dtype.kind in "US":
+                        if np.isin(array, list(bcif.NULL_TOKENS)).any():
+                            return True
+        return False
 
     # -- the database side ---------------------------------------------------
 
