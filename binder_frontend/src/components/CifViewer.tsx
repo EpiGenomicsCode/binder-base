@@ -7,11 +7,13 @@ import {
   StructureSelection,
 } from "molstar/lib/mol-model/structure";
 import { Script } from "molstar/lib/mol-script/script";
+import { MolScriptBuilder as MS } from "molstar/lib/mol-script/language/builder";
+import { StructureSelectionQuery } from "molstar/lib/mol-plugin-state/helpers/structure-selection-query";
 import { Color } from "molstar/lib/mol-util/color";
 import { MAQualityAssessment } from "molstar/lib/extensions/model-archive/quality-assessment/behavior";
 import type { Loci } from "molstar/lib/mol-model/loci";
 import type { Location } from "molstar/lib/mol-model/location";
-import { isolateChainByLength } from "../utils/cifChain";
+import type { PluginContext } from "molstar/lib/mol-plugin/context";
 import { classifyHotspotB } from "../utils/hotspotBfactor";
 import "molstar/build/viewer/molstar.css";
 
@@ -55,10 +57,12 @@ interface Props {
    */
   seqChainLength?: number | null;
   /**
-   * Show only the chain this many residues long, discarding the rest before the
-   * file is parsed. Used to draw the binder by itself out of a target+binder
-   * complex, which is the only structure a pruned run keeps for a binder.
-   * Omit to show the file as it is.
+   * Draw only the chain this many residues long. Used to show the binder by
+   * itself out of a target+binder complex, which is the only structure a
+   * pruned run keeps for a binder. Omit to show the file as it is.
+   *
+   * The whole complex is still loaded and parsed; what changes is which chain
+   * gets a representation. See isolateChain below for why.
    */
   isolateChainLength?: number | null;
   /**
@@ -179,6 +183,64 @@ function findChainAsymId(structure: Structure, length: number): string | null {
   return best;
 }
 
+/**
+ * Draw only the chain `length` residues long, out of a loaded complex.
+ *
+ * This used to be done by rewriting the mmCIF text before Mol* parsed it
+ * (utils/cifChain.ts): fetch the file, tokenize the `_atom_site` loop by hand,
+ * drop the rows belonging to the other chain, hand the result to
+ * loadStructureFromData. That worked, but it meant the component carried a
+ * second, partial mmCIF parser -- quote handling, loop-boundary detection, a
+ * standing assumption that `_atom_site` never holds a semicolon-delimited
+ * value -- maintained in parallel with the one inside Mol*. It also forced the
+ * file through `text()`, which is a dead end as soon as a structure is
+ * BinaryCIF.
+ *
+ * Mol* can express the same thing as a selection, so it does. The complex is
+ * loaded once, by URL, in whatever format it is on disk; the preset's
+ * components are replaced with a single component holding just the one chain.
+ * The two things the text filter was really buying still hold: the camera
+ * frames the binder rather than the whole complex, because only the binder has
+ * a representation, and the renderer only ever builds geometry for the atoms
+ * it draws.
+ *
+ * Returns false when there is nothing to isolate, leaving the whole complex
+ * drawn. That is the same fallback the text version took -- a complex in the
+ * binder panel is wrong but informative, an empty panel is not.
+ */
+async function isolateChain(plugin: PluginContext, length: number): Promise<boolean> {
+  const entry = plugin.managers.structure.hierarchy.current.structures[0];
+  const structure = entry?.cell.obj?.data;
+  if (!entry || !structure) return false;
+
+  const asym = findChainAsymId(structure, length);
+  if (!asym) return false;
+
+  const query = StructureSelectionQuery(
+    "Isolated chain",
+    MS.struct.generator.atomGroups({
+      "chain-test": MS.core.rel.eq([
+        MS.struct.atomProperty.macromolecular.label_asym_id(),
+        asym,
+      ]),
+    })
+  );
+
+  // clear() before add(): the preset built a polymer component over the whole
+  // complex, and leaving it in place would draw the target underneath.
+  await plugin.managers.structure.component.clear([entry]);
+  await plugin.managers.structure.component.add(
+    {
+      selection: query,
+      options: { checkExisting: false, label: "Binder" },
+      representation: "default",
+    },
+    [entry]
+  );
+  plugin.canvas3d?.requestCameraReset();
+  return true;
+}
+
 export default function CifViewer({
   cifPath,
   label,
@@ -228,25 +290,11 @@ export default function CifViewer({
       if (disposed) { v.dispose(); return; }
       viewerRef.current = v;
 
-      // Isolating a chain means rewriting the file, so it has to be fetched
-      // rather than handed to Mol* as a URL. The browser serves the second
-      // viewer of the same complex from cache, so this costs no extra transfer.
-      // Any failure falls back to loading the file whole: a complex in the
-      // binder panel is wrong but still informative, an empty panel is not.
-      let loaded = false;
-      if (isolateChainLength) {
-        try {
-          const res = await fetch(`/media/${cifPath}`);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const text = await res.text();
-          if (disposed) return;
-          await v.loadStructureFromData(isolateChainByLength(text, isolateChainLength), "mmcif");
-          loaded = true;
-        } catch {
-          loaded = false;
-        }
-      }
-      if (!loaded) await v.loadStructureFromUrl(`/media/${cifPath}`, "mmcif", false);
+      // One load, by URL, whatever the chain restriction is. Chain isolation
+      // happens on the loaded structure further down, so nothing here needs to
+      // know about it -- and the browser cache serves the second viewer of the
+      // same complex, as it did when this fetched the file by hand.
+      await v.loadStructureFromUrl(`/media/${cifPath}`, "mmcif", false);
       if (disposed) return;
 
       const { plugin } = v;
@@ -284,6 +332,23 @@ export default function CifViewer({
       structureRef.current = structure;
       chainAsymRef.current =
         structure && seqChainLength ? findChainAsymId(structure, seqChainLength) : null;
+
+      // Before the theme block below, which applies the colouring to whatever
+      // components exist. Isolating afterwards would replace the components
+      // that had just been themed and leave the binder in default colours.
+      //
+      // structureRef still points at the whole complex, deliberately: the
+      // epitope theme and the hover handler identify chains by residue count,
+      // and both need the target chain present to do it. Only the drawing is
+      // restricted.
+      if (isolateChainLength && structure) {
+        try {
+          await isolateChain(plugin, isolateChainLength);
+        } catch {
+          // Leaves the complex drawn, which is the documented fallback.
+        }
+        if (disposed) return;
+      }
 
       // The epitope theme has to be built AFTER the structure loads, because
       // it needs to know which chain is the binder. Registered on this

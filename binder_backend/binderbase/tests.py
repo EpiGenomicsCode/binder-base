@@ -225,6 +225,87 @@ class ImportRunTestCase(_RunFixtureMixin, TestCase):
 
 
 # ---------------------------------------------------------------------------
+# locating a design's structure
+# ---------------------------------------------------------------------------
+
+from binderbase.management.commands.import_run import (         # noqa: E402
+    _find_design_structure,
+)
+
+
+class FindDesignStructureTestCase(TestCase):
+    """The CSV names a .cif; what is on disk may be .bcif, .cif, or both.
+
+    Both is not a corrupt state -- it is what a run looks like part way
+    through backfill_bcif, and an import that ran against it has to pick the
+    same file the backfill is converging on.
+    """
+
+    def setUp(self):
+        self.designs = tempfile.mkdtemp(prefix="binderbase-designs-")
+        self.addCleanup(shutil.rmtree, self.designs, ignore_errors=True)
+        self.top = os.path.join(self.designs, "final_30_designs")
+        self.refold = os.path.join(self.top, "before_refolding")
+        os.makedirs(self.refold)
+
+    def _touch(self, directory, name):
+        path = os.path.join(directory, name)
+        with open(path, "w") as fh:
+            fh.write("data_test\n#\n")
+        return path
+
+    def test_finds_text_cif(self):
+        want = self._touch(self.top, "rank1_design_0.cif")
+        self.assertEqual(
+            _find_design_structure(self.designs, 1, "design_0.cif"), want)
+
+    def test_finds_bcif_when_csv_still_names_the_text_file(self):
+        """The CSV is written by BoltzGen, before any conversion happens, so
+        its file_name column always says .cif."""
+        want = self._touch(self.top, "rank1_design_0.bcif")
+        self.assertEqual(
+            _find_design_structure(self.designs, 1, "design_0.cif"), want)
+
+    def test_bcif_wins_when_both_exist(self):
+        self._touch(self.top, "rank1_design_0.cif")
+        want = self._touch(self.top, "rank1_design_0.bcif")
+        self.assertEqual(
+            _find_design_structure(self.designs, 1, "design_0.cif"), want)
+
+    def test_refolded_wins_over_before_refolding(self):
+        """Same filename in both directories -- the metrics in the CSV
+        describe the refolded structure, so that is the one to point at."""
+        want = self._touch(self.top, "rank1_design_0.cif")
+        self._touch(self.refold, "rank1_design_0.cif")
+        self.assertEqual(
+            _find_design_structure(self.designs, 1, "design_0.cif"), want)
+
+    def test_refolded_text_beats_before_refolding_bcif(self):
+        """Directory outranks extension: a .bcif in before_refolding is still
+        the wrong structure."""
+        want = self._touch(self.top, "rank1_design_0.cif")
+        self._touch(self.refold, "rank1_design_0.bcif")
+        self.assertEqual(
+            _find_design_structure(self.designs, 1, "design_0.cif"), want)
+
+    def test_rank_width_does_not_matter(self):
+        want = self._touch(self.top, "rank001_design_0.cif")
+        self.assertEqual(
+            _find_design_structure(self.designs, 1, "design_0.cif"), want)
+
+    def test_rank_must_match_exactly(self):
+        """rank1_ and rank10_ share a prefix; the glob matches both and the
+        regex is what tells them apart."""
+        self._touch(self.top, "rank10_design_0.cif")
+        self.assertIsNone(
+            _find_design_structure(self.designs, 1, "design_0.cif"))
+
+    def test_missing_structure_is_none(self):
+        self.assertIsNone(
+            _find_design_structure(self.designs, 1, "design_0.cif"))
+
+
+# ---------------------------------------------------------------------------
 # promoted metric columns
 # ---------------------------------------------------------------------------
 
