@@ -1906,3 +1906,137 @@ class ResidueMapBackfillTestCase(_RunCommandMixin, TestCase):
         target = Client().get(f"/api/runs/{run.id}/summary").json()["target"]
         self.assertIsNone(target["residues"])
         self.assertIsNone(target["residue_offset"])
+
+
+# ---------------------------------------------------------------------------
+# BinaryCIF conversion
+# ---------------------------------------------------------------------------
+
+import numpy as np                                             # noqa: E402
+import biotite.structure.io.pdbx as pdbx                       # noqa: E402
+
+from binderbase import bcif as bcif_module                      # noqa: E402
+
+# Two atoms, and the only part that matters is the value position: label_alt_id
+# is '.', pdbx_PDB_ins_code and pdbx_formal_charge are '?'. Those are mmCIF's
+# null tokens, not one-character strings.
+_MINIMAL_CIF = """data_model
+loop_
+_atom_site.group_PDB
+_atom_site.id
+_atom_site.type_symbol
+_atom_site.label_atom_id
+_atom_site.label_alt_id
+_atom_site.label_comp_id
+_atom_site.label_asym_id
+_atom_site.label_entity_id
+_atom_site.label_seq_id
+_atom_site.pdbx_PDB_ins_code
+_atom_site.Cartn_x
+_atom_site.Cartn_y
+_atom_site.Cartn_z
+_atom_site.occupancy
+_atom_site.B_iso_or_equiv
+_atom_site.pdbx_formal_charge
+_atom_site.auth_seq_id
+_atom_site.auth_asym_id
+_atom_site.pdbx_PDB_model_num
+ATOM 1 N N . GLU A 1 1 ? 1.000 2.000 3.000 1.00 60.33 ? 1 A 1
+ATOM 2 C CA . GLU A 1 1 ? 4.500 5.250 6.125 1.00 61.05 ? 1 A 1
+#
+"""
+
+
+class BcifConversionTestCase(TestCase):
+    """mmCIF's '.' and '?' are nulls, and BinaryCIF carries them in a mask.
+
+    Writing them through as string data makes each one a PRESENT value whose
+    content happens to be a dot. That shipped in v1.9.0 and broke pLDDT
+    colouring on every converted design: Mol* builds its residue index from
+    atom_site, so an ins code of "?" rather than an absent value made
+    quality-assessment's residue lookup miss every row, and the pLDDT theme
+    fell back to B_iso_or_equiv -- which BoltzGen writes on a 0-1 scale, so
+    everything landed in the "very low" band.
+
+    Coordinates were untouched throughout, which is exactly why a round-trip
+    check on coordinates alone did not catch it.
+    """
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="binderbase-bcif-")
+        self.addCleanup(shutil.rmtree, self.dir, ignore_errors=True)
+        self.src = os.path.join(self.dir, "rank1_design.cif")
+        with open(self.src, "w") as fh:
+            fh.write(_MINIMAL_CIF)
+        self.dest = os.path.join(self.dir, "rank1_design.bcif")
+
+    def _masks(self, path):
+        block = pdbx.BinaryCIFFile.read(path).block
+        return {
+            name: (None if col.mask is None else col.mask.array.tolist())
+            for name, col in block["atom_site"].items()
+        }
+
+    def test_null_tokens_become_a_mask(self):
+        bcif_module.convert(self.src, self.dest)
+        masks = self._masks(self.dest)
+        # 1 == INAPPLICABLE ('.'), 2 == MISSING ('?')
+        self.assertEqual(masks["label_alt_id"], [1, 1])
+        self.assertEqual(masks["pdbx_PDB_ins_code"], [2, 2])
+        self.assertEqual(masks["pdbx_formal_charge"], [2, 2])
+
+    def test_present_columns_carry_no_mask(self):
+        bcif_module.convert(self.src, self.dest)
+        masks = self._masks(self.dest)
+        for column in ("Cartn_x", "label_comp_id", "label_asym_id"):
+            self.assertIsNone(masks[column], f"{column} gained a spurious mask")
+
+    def test_null_tokens_are_not_left_in_the_data(self):
+        """The mask is the answer; the placeholder must never be a '.' or '?'
+        that a reader could mistake for a value."""
+        bcif_module.convert(self.src, self.dest)
+        block = pdbx.BinaryCIFFile.read(self.dest).block
+        for name, column in block["atom_site"].items():
+            if column.mask is None:
+                continue
+            array = column.data.array
+            if array.dtype.kind in "US":
+                self.assertNotIn(".", array.tolist(), f"{name} kept a literal dot")
+                self.assertNotIn("?", array.tolist(), f"{name} kept a literal ?")
+
+    def test_coordinates_round_trip(self):
+        delta = bcif_module.convert(self.src, self.dest)
+        self.assertLess(delta, bcif_module.DEFAULT_TOLERANCE)
+
+    def test_repair_rebuilds_masks_a_broken_file_lost(self):
+        """The v1.9.0 recovery path, for a run whose text CIFs are gone."""
+        cif = pdbx.CIFFile.read(self.src)
+        broken = pdbx.BinaryCIFFile()
+        for block_name, block in cif.items():
+            out = pdbx.BinaryCIFBlock()
+            for cat_name, category in block.items():
+                out[cat_name] = pdbx.BinaryCIFCategory(
+                    {k: pdbx.BinaryCIFData(c.as_array())
+                     for k, c in category.items()})
+            broken[block_name] = out
+        pdbx.compress(broken).write(self.dest)
+
+        self.assertIsNone(self._masks(self.dest)["pdbx_PDB_ins_code"])
+        self.assertGreater(bcif_module.repair(self.dest), 0)
+        self.assertEqual(self._masks(self.dest)["pdbx_PDB_ins_code"], [2, 2])
+        # Idempotent: a correct file is left alone.
+        self.assertEqual(bcif_module.repair(self.dest), 0)
+
+    def test_design_cifs_skips_the_run_root_and_bcif(self):
+        run = os.path.join(self.dir, "P1-X-20260101")
+        designs = os.path.join(run, "final_ranked_designs")
+        os.makedirs(designs)
+        for path in (os.path.join(run, "target.cif"),
+                     os.path.join(designs, "rank1_d.cif"),
+                     os.path.join(designs, "rank2_d.bcif")):
+            open(path, "w").write("x")
+        found = sorted(os.path.basename(p) for p in bcif_module.design_cifs(run))
+        self.assertEqual(found, ["rank1_d.cif"])
+        self.assertEqual(
+            [os.path.basename(p) for p in bcif_module.design_bcifs(run)],
+            ["rank2_d.bcif"])
