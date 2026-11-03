@@ -2040,3 +2040,68 @@ class BcifConversionTestCase(TestCase):
         self.assertEqual(
             [os.path.basename(p) for p in bcif_module.design_bcifs(run)],
             ["rank2_d.bcif"])
+
+
+class BackfillBcifVerifyTestCase(TestCase):
+    """--verify has to tell 'the repair never ran' apart from 'the browser is
+    showing a cached copy'. It reports and changes nothing."""
+
+    def setUp(self):
+        self.media = tempfile.mkdtemp(prefix="binderbase-verify-")
+        self.addCleanup(shutil.rmtree, self.media, ignore_errors=True)
+        self.run_rel = "runs/P1-X_HPA1-20260101"
+        self.designs = os.path.join(self.media, self.run_rel, "final_ranked_designs")
+        os.makedirs(self.designs)
+
+        protein = Protein.objects.create(uniprot_id="P1")
+        self.run = BinderRun.objects.create(protein=protein, run_dir=self.run_rel)
+
+        self.src = os.path.join(self.media, "src.cif")
+        with open(self.src, "w") as fh:
+            fh.write(_MINIMAL_CIF)
+
+    def _write(self, name, broken):
+        dest = os.path.join(self.designs, name)
+        if broken:
+            cif = pdbx.CIFFile.read(self.src)
+            out = pdbx.BinaryCIFFile()
+            for bn, block in cif.items():
+                ob = pdbx.BinaryCIFBlock()
+                for cn, cat in block.items():
+                    ob[cn] = pdbx.BinaryCIFCategory(
+                        {k: pdbx.BinaryCIFData(c.as_array()) for k, c in cat.items()})
+                out[bn] = ob
+            pdbx.compress(out).write(dest)
+        else:
+            bcif_module.convert(self.src, dest)
+        return dest
+
+    def _verify(self):
+        out = StringIO()
+        with override_settings(MEDIA_ROOT=self.media):
+            call_command("backfill_bcif", "--verify", stdout=out)
+        return out.getvalue()
+
+    def test_reports_broken_files(self):
+        self._write("rank1_a.bcif", broken=True)
+        self._write("rank2_b.bcif", broken=False)
+        report = self._verify()
+        self.assertIn("2 converted structure(s); 1 still broken", report)
+        self.assertNotIn("Files on disk are correct", report)
+
+    def test_clean_run_points_at_the_cache(self):
+        self._write("rank1_a.bcif", broken=False)
+        report = self._verify()
+        self.assertIn("1 converted structure(s); 0 still broken", report)
+        self.assertIn("CACHED", report)
+
+    def test_counts_surviving_text_cifs(self):
+        self._write("rank1_a.bcif", broken=False)
+        shutil.copy(self.src, os.path.join(self.designs, "rank1_a.cif"))
+        self.assertIn("1 still have their text CIF", self._verify())
+
+    def test_changes_nothing(self):
+        path = self._write("rank1_a.bcif", broken=True)
+        before = (os.path.getmtime(path), os.path.getsize(path))
+        self._verify()
+        self.assertEqual(before, (os.path.getmtime(path), os.path.getsize(path)))

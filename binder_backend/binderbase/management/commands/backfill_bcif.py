@@ -68,6 +68,14 @@ class Command(BaseCommand):
                  "the .cif is still present it is re-converted from text; where "
                  "it is not, the .bcif is repaired in place.")
         parser.add_argument(
+            "--verify", action="store_true",
+            help="Report the state of every converted file and change nothing. "
+                 "Says how many .bcif still carry mmCIF's null tokens as data "
+                 "instead of a mask, how many text CIFs remain beside them, and "
+                 "when the files were last written -- which is what separates "
+                 "'the repair did not run' from 'the browser is showing a "
+                 "cached copy'.")
+        parser.add_argument(
             "--batch-size", type=int, default=5000,
             help="Rows per bulk_update (default: %(default)s).")
         parser.add_argument(
@@ -98,6 +106,9 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
         runs = self.select_runs(options)
+
+        if options["verify"]:
+            return self._verify(runs)
 
         if dry_run:
             self.stdout.write(self.style.NOTICE("[dry run] nothing written\n"))
@@ -189,7 +200,14 @@ class Command(BaseCommand):
 
             # Only now, with the database pointing at the .bcif, is the text
             # file redundant. See the module docstring.
-            if not dry_run and not options["keep_text"]:
+            #
+            # --reconvert suppresses this even without --keep-text. A rewrite
+            # pass exists because the previous conversion was wrong, so the one
+            # thing that must not happen in the same breath is destroying the
+            # source it was rebuilt from -- before anyone has looked at the
+            # result. Reclaim the space with a plain run afterwards, once the
+            # viewer has been checked.
+            if not dry_run and not options["keep_text"] and not options["reconvert"]:
                 for src in pending:
                     if os.path.exists(bcif.bcif_path_for(src)) and os.path.exists(src):
                         os.remove(src)
@@ -204,6 +222,58 @@ class Command(BaseCommand):
             self.stdout.write(
                 f"{bytes_before / 1e6:.1f} MB -> {bytes_after / 1e6:.1f} MB "
                 f"({bytes_before / bytes_after:.2f}x), max coord delta {worst:.6f} A")
+
+    # -- looking without touching -------------------------------------------
+
+    def _verify(self, runs):
+        """Report what is on disk. Writes nothing, and never raises on one
+        unreadable file -- a report that stops at the first problem cannot tell
+        you how widespread the problem is."""
+        import time
+
+        total = broken = unreadable = with_text = 0
+        newest = 0.0
+        for run in runs:
+            if not run.run_dir:
+                continue
+            run_dir = os.path.join(settings.MEDIA_ROOT, str(run.run_dir))
+            if not os.path.isdir(run_dir):
+                self.stdout.write(self.style.ERROR(
+                    f"{os.path.basename(str(run.run_dir))}: directory missing"))
+                continue
+            r_total = r_broken = r_text = 0
+            for path in bcif.design_bcifs(run_dir):
+                r_total += 1
+                newest = max(newest, os.path.getmtime(path))
+                if os.path.isfile(path[: -len(".bcif")] + ".cif"):
+                    r_text += 1
+                try:
+                    if self._needs_repair(path):
+                        r_broken += 1
+                except Exception:                              # noqa: BLE001
+                    unreadable += 1
+            total += r_total
+            broken += r_broken
+            with_text += r_text
+            if r_total:
+                state = (self.style.ERROR(f"{r_broken} still carry null tokens as data")
+                         if r_broken else self.style.SUCCESS("masks ok"))
+                self.stdout.write(
+                    f"{os.path.basename(str(run.run_dir))}: {r_total} .bcif, "
+                    f"{r_text} with a .cif beside them - {state}")
+
+        self.stdout.write(self.style.SUCCESS(
+            f"\n{total} converted structure(s); {broken} still broken; "
+            f"{with_text} still have their text CIF; {unreadable} unreadable"))
+        if newest:
+            self.stdout.write(f"most recently written: {time.ctime(newest)}")
+        if total and not broken:
+            self.stdout.write(
+                "Files on disk are correct. A viewer still showing the old "
+                "colouring is serving a CACHED copy: /media/ sets a 30-day "
+                "Cache-Control and the URL does not change when a file is "
+                "rewritten in place. Hard-reload to confirm.")
+        return None
 
     # -- repairing what v1.9.0 wrote ----------------------------------------
 
