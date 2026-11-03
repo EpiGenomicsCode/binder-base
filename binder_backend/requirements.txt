@@ -25,6 +25,21 @@ psycopg2-binary==2.9.11
 gunicorn==25.3.0
 PyYAML==6.0.3
 
+# Reads and writes BinaryCIF, for binderbase/bcif.py and the backfill_bcif
+# command. Nothing in the request path imports it -- design structures are
+# served as static files and parsed by Mol* in the browser -- so this is a
+# management-command dependency that happens to live in the same venv.
+#
+# The same version the campaign container ships, deliberately: the worker node
+# and the backfill must produce byte-comparable output, and biotite's default
+# encodings are a property of the version.
+#
+# It pulls numpy, msgpack, networkx and requests. Those are NOT yet listed in
+# the transitive section below, because that section is a pip freeze of
+# production and production has not installed this yet. Re-run the freeze after
+# the first deploy that includes it.
+biotite==1.6.0
+
 # Diagnostic/developer tooling. Installed in production today, so pinned here to
 # keep this file a faithful description of that environment rather than an
 # aspiration. Splitting these into requirements-dev.txt would be a reasonable

@@ -272,6 +272,53 @@ def _dir_name_mismatches(match, uniprot_id, run_datetime):
     return problems
 
 
+def _find_design_structure(designs_dir, rank, file_name):
+    """Locate one design's structure under ``designs_dir``, or None.
+
+    Two things make this more than a glob.
+
+    EXTENSION. The campaign converts design structures to BinaryCIF on the
+    worker node (osg_pilot/cif_to_bcif.py), and backfill_bcif converts runs
+    imported before that, so a run directory may legitimately hold .bcif, .cif,
+    or -- mid-backfill, by design -- both. The CSV's ``file_name`` column names
+    the text file it was written against, so the extension there is a starting
+    point and not an answer. .bcif wins when both are present: that is the file
+    the backfill is converging on, and preferring the text copy would make an
+    interrupted backfill silently reverse itself on the next import.
+
+    DIRECTORY. ``before_refolding/`` holds a file of exactly the same name as
+    the top level -- same design, before the refold -- so the obvious recursive
+    glob matches two files and the old code took whichever the filesystem
+    happened to yield first. The metrics in the CSV describe the refolded
+    structure, so the top-level copy is the one a binder row should point at.
+    This was ambiguous rather than wrong before, and it is pinned down now.
+
+    Rank in the filename may use any width (rank1_, rank01_, rank001_), which
+    is why the numeric rank is matched by regex rather than formatted into the
+    glob.
+    """
+    stem = file_name[: -len(".cif")] if file_name.endswith(".cif") else file_name
+    rank_re = re.compile(rf"^rank0*{int(rank)}_{re.escape(stem)}\.(bcif|cif)$")
+
+    matches = [
+        p
+        for p in glob_module.glob(
+            os.path.join(designs_dir, "**", f"rank*_{stem}.*"), recursive=True
+        )
+        if rank_re.match(os.path.basename(p))
+    ]
+    if not matches:
+        return None
+
+    def preference(path):
+        # Lower sorts first: refolded before before_refolding, .bcif before
+        # .cif, then the path itself so the result cannot depend on walk order.
+        in_before_refolding = "before_refolding" in os.path.normpath(path).split(os.sep)
+        return (in_before_refolding, not path.endswith(".bcif"), path)
+
+    return min(matches, key=preference)
+
+
 def get_or_create_protein(uniprot_id):
     """Look up a Protein by UniProt ID, creating it from AlphaFold/UniProt if new.
 
@@ -648,23 +695,10 @@ class Command(BaseCommand):
                 )
 
                 if rank is not None and file_name:
-                    # Rank in the CIF filename may use any width (e.g.
-                    # rank1_, rank01_, rank001_), so glob a wildcard and
-                    # filter to the exact numeric rank.
-                    rank_re = re.compile(
-                        rf"^rank0*{int(rank)}_{re.escape(file_name)}$"
-                    )
-                    cif_matches = [
-                        p
-                        for p in glob_module.glob(
-                            os.path.join(designs_dir, "**", f"rank*_{file_name}"),
-                            recursive=True,
-                        )
-                        if rank_re.match(os.path.basename(p))
-                    ]
-                    if cif_matches:
+                    match = _find_design_structure(designs_dir, rank, file_name)
+                    if match:
                         fields["cif_path"] = os.path.relpath(
-                            cif_matches[0], settings.MEDIA_ROOT
+                            match, settings.MEDIA_ROOT
                         )
 
                 binders.append(Binder(**fields))
