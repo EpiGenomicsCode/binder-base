@@ -294,7 +294,17 @@ export default function CifViewer({
       // happens on the loaded structure further down, so nothing here needs to
       // know about it -- and the browser cache serves the second viewer of the
       // same complex, as it did when this fetched the file by hand.
-      await v.loadStructureFromUrl(`/media/${cifPath}`, "mmcif", false);
+      // The format comes from the path because the database legitimately holds
+      // both: backfill_bcif converts run by run, and a part-converted database
+      // is a supported state, not a transient one to be hurried through.
+      //
+      // Mol* is told the format explicitly rather than sniffing Content-Type,
+      // so telling it the wrong one is silent -- a .bcif handed to the mmCIF
+      // text parser yields no model and an empty viewport, with nothing logged
+      // and no failed request to see in the network tab.
+      const binary = cifPath.endsWith(".bcif");
+      await v.loadStructureFromUrl(
+        `/media/${cifPath}`, binary ? "bcif" : "mmcif", binary);
       if (disposed) return;
 
       const { plugin } = v;
