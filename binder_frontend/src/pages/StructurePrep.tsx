@@ -769,6 +769,90 @@ interface PrepareStepProps {
   onNext: () => void;
 }
 
+/**
+ * What the campaign data says about how WIDE a hotspot declaration should be.
+ *
+ * Measured over 624 BlitzGen runs / 238,500 designs in this catalogue, split by
+ * whether the run declared a footprint-sized patch (~20 residues, chosen by
+ * select_patch.py) or the whole PrEST span (~82 residues). The two arms trade
+ * against each other rather than one dominating, which is why this is a note at
+ * the point of choosing and not a default we silently apply.
+ *
+ * Every figure here is denominator-free -- ipTM, PAE and monomer RMSD carry no
+ * placement term, so the size of the declared set cannot inflate them. An
+ * earlier read of this used "fraction of declared residues contacted", which a
+ * wider declaration does bias; it was dropped for that reason.
+ */
+function HotspotBreadthNote() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="sp-breadth-note">
+      <button
+        className="sp-breadth-toggle"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className="sp-breadth-icon" aria-hidden="true">◆</span>
+        How wide should the hotspot be? There is a measured trade-off.
+        <span className="sp-breadth-chev">{open ? "▴" : "▾"}</span>
+      </button>
+      {open && (
+        <div className="sp-breadth-body">
+          <p>
+            Across <strong>624 runs / 238,500 designs</strong> in this catalogue,
+            a narrow footprint (~20 residues) and a whole epitope span
+            (~82 residues) do not rank the same way. Neither wins outright:
+          </p>
+          <table className="sp-breadth-table">
+            <thead>
+              <tr>
+                <th>&nbsp;</th>
+                <th>Narrow (~20 res)</th>
+                <th>Wide (~82 res)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Designs that refold as the same monomer (&lt;2 Å)</td>
+                <td className="sp-breadth-win">68%</td>
+                <td>49%</td>
+              </tr>
+              <tr>
+                <td>Designs reaching ipTM &gt; 0.5</td>
+                <td>5.7%</td>
+                <td className="sp-breadth-win">20.4%</td>
+              </tr>
+              <tr>
+                <td>Mean interaction PAE (lower is better)</td>
+                <td>16.3</td>
+                <td className="sp-breadth-win">11.9</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>
+            <strong>A narrow hotspot buys designability; a wide one buys
+            interface quality.</strong> Designs aimed at a tight patch fold
+            reliably into what was designed but make weaker contacts. Designs
+            given a broad target engage it better but are less self-consistent.
+          </p>
+          <p className="sp-breadth-advice">
+            Pick by what is failing downstream. If designs do not fold into the
+            intended shape, narrow the hotspot. If they fold cleanly but do not
+            bind, widen it.
+          </p>
+          <p className="sp-breadth-caveat">
+            <strong>Caveat:</strong> these arms are different targets from
+            different triage generations, so the comparison is observational and
+            confounded — target difficulty could produce part of the gap on its
+            own. A controlled run (same targets, only the declaration width
+            changed) is in progress and will replace these figures.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PrepareStep({
   annotatedUrl, fileName, residues, chains, isAlphaFold,
   selectedChains, onChainToggle,
@@ -816,6 +900,8 @@ function PrepareStep({
 
   return (
     <div className="sp-prepare-step">
+      <HotspotBreadthNote />
+
       <div className="sp-step-header">
         <div>
           <h2 className="sp-step-title">
