@@ -134,6 +134,94 @@ raises when a CSV has rows but yields no binders — but older rows may predate 
 3. Then the rest. 100 runs × 1,000 designs is ~100k `Binder` rows, a few minutes.
 4. Back up afterwards — the import is the expensive part to redo, not the code.
 
+### Structures 403 after staging: SELinux context
+
+**Symptom.** Binder pages load, metrics render, the viewer panel is blank. No 404,
+no console error, nothing in the Django log. Every upstream layer checks out:
+files on disk, `Binder.cif_path` populated and resolving, the frontend build
+current. `curl` on the structure URL returns **403 Forbidden**.
+
+**Cause.** The host runs SELinux in `Enforcing` mode. `mv` **preserves** a file's
+SELinux context; `cp` and `rsync` assign a fresh one from the destination's
+parent. A run extracted from an OSG tarball in a home directory and then *moved*
+into `MEDIA_ROOT` keeps `user_home_t`, which `httpd_t` (nginx) may not read — so
+nginx can see the file, cannot open it, and returns 403. Ownership and mode are
+irrelevant here and will look perfect; `chown`/`chmod` change nothing.
+
+```bash
+namei -l /opt/binder/files/runs/<run>/final_ranked_designs/final_*_designs/rank001_*.bcif
+getenforce
+ls -ldZ /opt/binder/files /opt/binder/files/runs /opt/binder/files/runs/<run>
+```
+
+`namei -l` proves the permission chain is fine. `ls -ldZ` shows the mismatch: the
+parents carry `usr_t` and the offending run carries `user_home_t`.
+
+**Find every affected run**, since one bad staging usually means several:
+
+```bash
+find /opt/binder/files/runs -maxdepth 1 -mindepth 1 -printf '%Z %f\n' \
+  | awk '{print $1}' | sort | uniq -c                      # census
+find /opt/binder/files/runs -maxdepth 1 -mindepth 1 -context '*user_home_t*' -printf '%f\n'
+```
+
+**Fix** (root). Relabels to the policy default, which is what working runs carry:
+
+```bash
+restorecon -RFv /opt/binder/files/runs/<run>     # one run
+restorecon -RFv /opt/binder/files                # everything
+```
+
+No rebuild, no re-import, no restart. Re-test with `curl -sI` on the same URL.
+
+**Make it durable** so new files are labelled by policy rather than inheriting
+`usr_t` by luck. `httpd_sys_content_t` is the correct type for web-served content
+and is read-only to `httpd_t`; Django writes as gunicorn, not nginx, so imports
+are unaffected:
+
+```bash
+semanage fcontext -a -t httpd_sys_content_t '/opt/binder/files(/.*)?'
+restorecon -Rv /opt/binder/files
+```
+
+**Rule out the data first** when the viewer is blank, so you are not chasing
+SELinux over a genuinely broken file:
+
+```bash
+python manage.py backfill_bcif --verify --run <run-dir-name>
+python manage.py backfill_bcif --verify                     # every run
+```
+
+It reports, per run, how many `.bcif` still carry mmCIF's null tokens as data
+rather than as a mask, how many still have a text CIF beside them, and when the
+files were last written. It writes nothing and does not stop at the first
+unreadable file, because a report that halts cannot say how widespread a problem
+is.
+
+A structureless BinaryCIF makes Mol\* render an empty viewport and log nothing,
+which is indistinguishable from the 403 case in the browser — so run this before
+reaching for `restorecon`.
+
+If `--verify` says the files are correct and the viewer still shows the old
+state, the remaining suspect is the cache, not the data: `/media/` granted a
+30-day `Cache-Control` and the URL does not change when `backfill_bcif` rewrites
+a file in place. That is what made a successful repair of
+`Q9Y5U8-MPC1_HPA045119-20261029` look like a failed one. The `.bcif` block in
+`misc/nginx.conf` now sets `must-revalidate`; confirm the live server has it,
+since that file is applied by hand:
+
+```bash
+nginx -T 2>/dev/null | grep -c bcif
+```
+
+**`stage_runs.sh` already relabels** — it runs `restorecon -R` over every run it
+staged, guarded on `getenforce != Disabled`. So a run with the wrong context is
+evidence it **bypassed the staging script**: extracted from an OSG tarball and
+moved into `MEDIA_ROOT` by hand. Extract to a scratch directory and let
+`stage_runs.sh` place it, and this cannot happen — it also runs the five
+importability checks (`-YYYYMMDD` suffix, `meta.json` present and parseable,
+`all_designs_metrics.csv` present, intermediates pruned) before writing a byte.
+
 ---
 
 ## The migration that needs a maintenance window
