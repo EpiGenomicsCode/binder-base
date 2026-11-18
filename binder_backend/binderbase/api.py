@@ -121,10 +121,18 @@ class ProteinDetailSchema(ProteinListSchema):
 
     @staticmethod
     def resolve_runs(obj):
+        # ORDER EXPLICITLY. Meta.ordering does not survive here: the queryset
+        # carries an aggregate annotation, and Django drops Meta.ordering from
+        # aggregate querysets rather than let it interfere with GROUP BY. The
+        # result was rows in storage order -- CASQ2 served R003, R002, R001,
+        # R004, with R004 last despite sharing R003's date, and FTCD served
+        # 469, 468, 470. Setting Meta.ordering (0015) was necessary and not
+        # sufficient; run_index_queryset already orders explicitly, which is
+        # why the runs index looked correct while protein pages did not.
         return (
             obj.binderrun_set.select_related("user")
             .annotate(binder_count=Count("binder"))
-            .all()
+            .order_by("-run_datetime", "-run_code", "-id")
         )
 
 
