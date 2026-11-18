@@ -58,7 +58,15 @@ class BinderRun(models.Model):
         return " - ".join(p for p in parts if p) or f"Run #{self.pk}"
     
     class Meta:
-        ordering = ["-run_datetime", ]
+        # run_datetime is DATE-ONLY at midnight: 697 runs share just 16 distinct
+        # values, and 421 of them sit on 2026-11-03. Ordering on it alone leaves
+        # almost every row tied, and a tied ORDER BY is whatever the plan
+        # happens to emit -- so the order a protein page showed could change
+        # between two reloads. run_code breaks the tie meaningfully: it is
+        # unique, populated on every run, and zero-padded (<ACC>-R001), so
+        # lexicographic order IS run order within a protein. id is the final
+        # guarantee of determinism if run_code is ever null.
+        ordering = ["-run_datetime", "-run_code", "-id"]
 
 
 class Binder(models.Model):
