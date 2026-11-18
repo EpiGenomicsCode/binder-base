@@ -4073,3 +4073,71 @@ table .v-none { color: #b91c1c; font-weight: 600; }
   gap: 0.5rem;
   justify-content: center;
 }
+
+/* --- Structure Prep: hotspot breadth guidance -------------------------------
+   Collapsed by default. The finding is a trade-off, not a recommendation, so it
+   should be available at the point of choosing without crowding the wizard. */
+.sp-breadth-note {
+  border: 1px solid var(--border, #d5dbe3);
+  border-left: 3px solid var(--accent, #2d7d79);
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  background: var(--surface-2, #f7f9fa);
+}
+.sp-breadth-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.6rem 0.85rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  color: var(--text, #1d2430);
+}
+.sp-breadth-toggle:hover { background: rgba(45, 125, 121, 0.06); }
+.sp-breadth-icon { color: var(--accent, #2d7d79); font-size: 0.8em; }
+.sp-breadth-chev { margin-left: auto; opacity: 0.6; }
+.sp-breadth-body {
+  padding: 0 0.85rem 0.85rem;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+.sp-breadth-body p { margin: 0.6rem 0; }
+.sp-breadth-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.7rem 0;
+  font-size: 0.88rem;
+}
+.sp-breadth-table th,
+.sp-breadth-table td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border, #e3e8ee);
+  text-align: right;
+}
+.sp-breadth-table th:first-child,
+.sp-breadth-table td:first-child { text-align: left; }
+.sp-breadth-table thead th {
+  font-weight: 600;
+  border-bottom-width: 2px;
+}
+.sp-breadth-win { font-weight: 700; color: var(--accent, #2d7d79); }
+.sp-breadth-advice {
+  padding: 0.5rem 0.7rem;
+  background: rgba(45, 125, 121, 0.08);
+  border-radius: 4px;
+}
+.sp-breadth-caveat {
+  font-size: 0.85rem;
+  opacity: 0.82;
+  border-top: 1px solid var(--border, #e3e8ee);
+  padding-top: 0.6rem;
+}
+@media (prefers-color-scheme: dark) {
+  .sp-breadth-note { background: rgba(255, 255, 255, 0.03); }
+  .sp-breadth-toggle:hover { background: rgba(255, 255, 255, 0.05); }
+}
