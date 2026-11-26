@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { getProtein, getRunBinder, getRunSummary } from "../api/client";
 import type { Binder, BinderRun, ProteinDetail, RunSummary } from "../types";
 import BindersTable, { BinderModal } from "../components/BindersTable";
@@ -40,6 +40,7 @@ const HIST_ORDER = [
 export default function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
   const runId = Number(id);
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const binderParam = searchParams.get("binder");
   const requestedBinderId = Number(binderParam);
@@ -96,12 +97,46 @@ export default function RunDetailPage() {
     return () => ac.abort();
   }, [runId, binderId, selected]);
 
+  /**
+   * The `?binder=` entry this page pushed, as "<runId>:<binderId>", or null.
+   *
+   * Opening a design pushes, so Back closes the modal instead of walking off
+   * the run page. Closing then has to unwind that entry rather than push a
+   * second one, or Back would land on a URL identical to the one on screen and
+   * appear to do nothing.
+   *
+   * It cannot simply always go back, because a design can also be opened by
+   * arriving at `?binder=` directly -- which is the whole point of the hero
+   * links. Nothing was pushed in that case, so Back belongs to wherever the
+   * visitor came from, and closing has to drop the parameter in place. Holding
+   * the id rather than a flag keeps the two apart even if the run changes
+   * under the same mounted page.
+   */
+  const pushedEntryRef = useRef<string | null>(null);
+
   function selectBinder(binder: Binder | null) {
-    setSelection(binder ? { runId, binderId: binder.id, binder } : null);
+    if (binder) {
+      setSelection({ runId, binderId: binder.id, binder });
+      pushedEntryRef.current = `${runId}:${binder.id}`;
+      setSearchParams((params) => {
+        const next = new URLSearchParams(params);
+        next.set("binder", String(binder.id));
+        return next;
+      });
+      return;
+    }
+
+    if (pushedEntryRef.current === `${runId}:${binderId}`) {
+      pushedEntryRef.current = null;
+      // Pops our own entry: the URL loses ?binder, so the modal closes with it.
+      navigate(-1);
+      return;
+    }
+
+    setSelection(null);
     setSearchParams((params) => {
       const next = new URLSearchParams(params);
-      if (binder) next.set("binder", String(binder.id));
-      else next.delete("binder");
+      next.delete("binder");
       return next;
     }, { replace: true });
   }
