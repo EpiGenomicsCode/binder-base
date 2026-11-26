@@ -503,6 +503,16 @@ h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter
   color: var(--gray-text);
 }
 
+/* Shown in place of the stat cards when /api/stats fails, so an outage is
+   distinguishable from an empty database. Shared by Home and About, which
+   render the same four counts. */
+.stats-error {
+  margin-top: 1.5rem;
+  font-size: 0.9rem;
+  color: var(--gray-text);
+  max-width: 34rem;
+}
+
 /* ── About page ── */
 .about-body {
   max-width: 640px;

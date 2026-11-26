@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getStats } from "../api/client";
 import usePageMeta, { count as fmtCount } from "../utils/pageMeta";
+import { STAT_FIELDS } from "../utils/stats";
 import { MONOMER_A, PLACEMENT_A } from "../utils/binderMetrics";
 import type { Stats } from "../types";
 
@@ -159,6 +160,9 @@ const COLOURS = [
 
 export default function About() {
   const [stats, setStats] = useState<Stats | null>(null);
+  // Resetting to null on failure rendered exactly like a database with nothing
+  // in it -- on the page whose whole claim is that it reports real counts.
+  const [statsFailed, setStatsFailed] = useState(false);
 
   usePageMeta({
     title: "About",
@@ -171,7 +175,9 @@ export default function About() {
   useEffect(() => {
     // Counts rather than prose, so the page cannot go stale against the
     // database it is describing.
-    getStats().then(setStats).catch(() => setStats(null));
+    getStats()
+      .then(setStats)
+      .catch(() => setStatsFailed(true));
   }, []);
 
   return (
@@ -191,23 +197,21 @@ export default function About() {
           not recoverable from a database that stores only what worked.
         </p>
 
-        {stats && (
+        {stats ? (
           <div className="about-stats">
-            {[
-              [stats.protein_count, "targets"],
-              [stats.run_count, "runs"],
-              [stats.binder_count, "designs"],
-              [stats.success_count, "passing designs"],
-            ].map(([value, label]) => (
-              <div className="about-stat" key={label as string}>
-                <span className="about-stat-value">
-                  {fmtCount(value as number)}
-                </span>
-                <span className="about-stat-label">{label as string}</span>
+            {STAT_FIELDS.map(({ key, label }) => (
+              <div className="about-stat" key={key}>
+                <span className="about-stat-value">{fmtCount(stats[key])}</span>
+                <span className="about-stat-label">{label}</span>
               </div>
             ))}
           </div>
-        )}
+        ) : statsFailed ? (
+          <p className="stats-error">
+            These counts are unavailable right now — the statistics endpoint
+            did not respond. Everything described below is unaffected.
+          </p>
+        ) : null}
 
         <h2 className="about-heading">What the numbers mean</h2>
         <p className="about-section-body">
