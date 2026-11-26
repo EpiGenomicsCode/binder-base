@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { getProtein, getRunSummary } from "../api/client";
-import type { BinderRun, ProteinDetail, RunSummary } from "../types";
-import BindersTable from "../components/BindersTable";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { getProtein, getRunBinder, getRunSummary } from "../api/client";
+import type { Binder, BinderRun, ProteinDetail, RunSummary } from "../types";
+import BindersTable, { BinderModal } from "../components/BindersTable";
 import RunTargetStructure from "../components/RunTargetStructure";
 import RunVerdict from "../components/RunVerdict";
 import { EnrichmentChart, HistogramChart } from "../components/RunCharts";
@@ -40,6 +40,13 @@ const HIST_ORDER = [
 export default function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
   const runId = Number(id);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const binderParam = searchParams.get("binder");
+  const requestedBinderId = Number(binderParam);
+  const binderId = Number.isSafeInteger(requestedBinderId) && requestedBinderId > 0
+    ? requestedBinderId : null;
+  const [selection, setSelection] = useState<{ runId: number; binderId: number; binder: Binder | null } | null>(null);
+  const selected = selection?.runId === runId && selection.binderId === binderId ? selection : null;
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const [protein, setProtein] = useState<ProteinDetail | null>(null);
   const [run, setRun] = useState<BinderRun | null>(null);
@@ -75,6 +82,29 @@ export default function RunDetailPage() {
 
     return () => ac.abort();
   }, [runId]);
+
+  useEffect(() => {
+    if (!Number.isFinite(runId) || binderId === null || selected) return;
+    const ac = new AbortController();
+    getRunBinder(runId, binderId, ac.signal)
+      .then((binder) => {
+        if (!ac.signal.aborted) setSelection({ runId, binderId, binder });
+      })
+      .catch(() => {
+        if (!ac.signal.aborted) setSelection({ runId, binderId, binder: null });
+      });
+    return () => ac.abort();
+  }, [runId, binderId, selected]);
+
+  function selectBinder(binder: Binder | null) {
+    setSelection(binder ? { runId, binderId: binder.id, binder } : null);
+    setSearchParams((params) => {
+      const next = new URLSearchParams(params);
+      if (binder) next.set("binder", String(binder.id));
+      else next.delete("binder");
+      return next;
+    }, { replace: true });
+  }
 
   // Before the early returns, so the hook count does not change with load state.
   // This is the page most likely to be cited or pasted into a thread, so the
@@ -140,6 +170,13 @@ export default function RunDetailPage() {
         </div>
       </div>
 
+      {binderParam !== null && (binderId === null || (selected && !selected.binder)) && (
+        <p className="status error" role="status">Could not open this binder in the run.</p>
+      )}
+      {binderId !== null && !selected && (
+        <p className="status" role="status">Loading binder…</p>
+      )}
+
       {/* 1. Did it work */}
       <RunVerdict summary={summary} />
 
@@ -190,16 +227,17 @@ export default function RunDetailPage() {
 
       {/* 5. The designs */}
       <div className="run-section-title">Binders</div>
-      {/* The same ranges the PAE band uses, so the structure view and the
-          per-design complex view cannot disagree about where the epitope is. */}
-      {/* The same distributions the charts above are drawn from, so a binder's
-          modal can place that design inside its run without a second request. */}
-      <BindersTable
-        runId={summary.run_id}
-        epitope={parseRanges(target.epitope)}
-        masked={parseRanges(target.masked_faces)}
-        histograms={summary.histograms}
-      />
+      <BindersTable runId={summary.run_id} onSelectBinder={selectBinder} />
+      {selected?.binder && (
+        <BinderModal
+          key={selected.binder.id}
+          binder={selected.binder}
+          onClose={() => selectBinder(null)}
+          epitope={parseRanges(target.epitope)}
+          masked={parseRanges(target.masked_faces)}
+          histograms={summary.histograms}
+        />
+      )}
 
       {/* 6. Provenance, collapsed */}
       {run && (

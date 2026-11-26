@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import HomeComplexGallery from "../components/HomeComplexGallery";
 import ProteinSearchBar from "../components/ProteinSearchBar";
 import { getStats } from "../api/client";
 import usePageMeta, { count, DEFAULT_DESCRIPTION } from "../utils/pageMeta";
@@ -32,15 +33,14 @@ export default function Home() {
 
   return (
     <div className="home-page">
-      <div className="home-header-img-wrap">
-        <img
-          src="/header.webp"
-          alt=""
-          className="home-header-img"
-          width={2501}
-          height={900}
-        />
-      </div>
+      <header className="home-header">
+        <div className="home-header-content">
+          <h1 className="home-header-title">
+            Protein Binder <span>Database</span>
+          </h1>
+          <HomeComplexGallery />
+        </div>
+      </header>
       <div className="hero hero-page">
         <p className="hero-sub">
           Search proteins by UniProt ID, gene name, organism, or protein name.

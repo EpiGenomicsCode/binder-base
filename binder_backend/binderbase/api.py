@@ -440,6 +440,12 @@ def list_run_binders(
         "metric_keys": run_metric_keys(run),
     }
 
+
+@api.get("/runs/{run_id}/binders/{binder_id}", response=BinderSchema)
+def get_run_binder(request, run_id: int, binder_id: int):
+    return get_object_or_404(Binder, run_id=run_id, pk=binder_id)
+
+
 # --- run summary ------------------------------------------------------------
 # Aggregated server-side. A run holds thousands of binders and the page needs
 # distributions, not rows; shipping every row to the client to build a

@@ -21,7 +21,7 @@ interface BinderModalProps {
   histograms?: Record<string, Histogram>;
 }
 
-function BinderModal({
+export function BinderModal({
   binder, onClose, epitope = [], masked = [], histograms,
 }: BinderModalProps) {
   const [copied, setCopied] = useState(false);
@@ -55,7 +55,12 @@ function BinderModal({
 
   return (
     <div className="cif-modal-overlay" onClick={onClose}>
-      <div className="cif-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="cif-modal"
+        role="dialog"
+        aria-label={`Binder ${binder.final_rank == null ? binder.id : `rank ${binder.final_rank}`}`}
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Identity, not measurement: which design this is and what the
             pipeline concluded about it. Design-to-target ipTM used to sit here
             too and is now only in the metrics grid below, which states it with
@@ -75,7 +80,15 @@ function BinderModal({
             </span>
           )}
           <div className="cif-modal-header-right">
-            <button className="cif-modal-close" onClick={onClose}>✕</button>
+            <button
+              className="cif-modal-close"
+              type="button"
+              aria-label="Close binder details"
+              autoFocus
+              onClick={onClose}
+            >
+              ✕
+            </button>
           </div>
         </div>
         <div className="cif-modal-seq-header">
@@ -446,18 +459,11 @@ function exportUrl(runId: number, file: string, query: string): string {
 
 export default function BindersTable({
   runId,
-  epitope = [],
-  masked = [],
-  histograms,
+  onSelectBinder,
 }: {
   runId: number;
-  epitope?: [number, number][];
-  masked?: [number, number][];
-  /** The run summary's distributions, passed to the modal so a design can be
-   *  placed in its run. The page has already fetched them for its charts. */
-  histograms?: Record<string, Histogram>;
+  onSelectBinder: (binder: Binder) => void;
 }) {
-  const [selectedBinder, setSelectedBinder] = useState<Binder | null>(null);
   const [sortKey, setSortKey] = useState<BinderSortKey>("rank");
   const [sortDir, setSortDir] = useState<BinderSortDir>("asc");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -701,7 +707,7 @@ export default function BindersTable({
             <tr
               key={b.id}
               className="binder-row"
-              onClick={() => setSelectedBinder(b)}
+              onClick={() => onSelectBinder(b)}
               title="Click to view structures"
             >
               {activeColumns.map((col) => (
@@ -726,16 +732,6 @@ export default function BindersTable({
         noun="designs"
         anchorRef={tableRef}
       />
-
-      {selectedBinder && (
-        <BinderModal
-          binder={selectedBinder}
-          onClose={() => setSelectedBinder(null)}
-          epitope={epitope}
-          masked={masked}
-          histograms={histograms}
-        />
-      )}
     </>
   );
 }
