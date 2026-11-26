@@ -585,6 +585,16 @@ h4 { margin: 1rem 0 0.5rem; font-size: 0.9rem; text-transform: uppercase; letter
   color: #222;
   margin-bottom: 0.35rem;
 }
+/* How the run card words the same metric, so a reader who met the long form
+   there can find it here under its short name. */
+.about-term-gloss {
+  font-size: 0.78rem;
+  font-weight: 400;
+  font-style: italic;
+  color: #777;
+  margin-left: 0.45rem;
+}
+
 /* The database column, so a reader of an exported CSV can match a heading on
    this page to the field they are looking at. */
 .about-term-col {

@@ -18,6 +18,13 @@ import type { Stats } from "../types";
 
 interface Metric {
   term: string;
+  /**
+   * How the run card words this metric. The card has running-text space and no
+   * column header to lean on, so it spells the measurement out; the heading and
+   * the leaderboard column keep the short name. Carrying both here is what
+   * makes them one vocabulary rather than two.
+   */
+  gloss?: string;
   column: string;
   body: React.ReactNode;
 }
@@ -25,6 +32,7 @@ interface Metric {
 const METRICS: Metric[] = [
   {
     term: "Placed",
+    gloss: "positioned as designed",
     column: "bb_target_aligned_rmsd_design",
     body: (
       <>
@@ -47,6 +55,7 @@ const METRICS: Metric[] = [
   },
   {
     term: "Monomer",
+    gloss: "folds as designed",
     column: "designfolding_bb_rmsd",
     body: (
       <>
@@ -65,6 +74,7 @@ const METRICS: Metric[] = [
   },
   {
     term: "Passed",
+    gloss: "passed filters",
     column: "pass_filters",
     body: (
       <>
@@ -222,6 +232,9 @@ export default function About() {
             <div className="about-term" key={m.term}>
               <dt>
                 {m.term}
+                {m.gloss && (
+                  <span className="about-term-gloss">{m.gloss}</span>
+                )}
                 <code className="about-term-col">{m.column}</code>
               </dt>
               <dd>{m.body}</dd>

@@ -26,6 +26,7 @@ function epitopeOf(run: BinderRun): string | null {
 export default function RunCard({ run }: { run: BinderRun }) {
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const [failed, setFailed] = useState(false);
+  const epitope = epitopeOf(run);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -42,18 +43,22 @@ export default function RunCard({ run }: { run: BinderRun }) {
       <div className="run-card-main">
         <div className="run-card-title">{runLabel(run)}</div>
         <div className="run-card-sub">
+          {/* The epitope leads and placement follows it. placement_hits is
+              defined as designs landing within a few angstrom of THIS range,
+              so the two are one fact stated twice -- they used to sit at
+              opposite ends of the line with the pass rate wedged between. */}
+          {epitope && (
+            <>
+              <span className="run-card-muted">epitope {epitope}</span>
+              <span className="verdict-sep">·</span>
+            </>
+          )}
           {summary ? (
             <RunVerdictLine summary={summary} />
           ) : failed ? (
             <span className="run-card-muted">summary unavailable</span>
           ) : (
             <span className="run-card-muted">loading…</span>
-          )}
-          {epitopeOf(run) && (
-            <>
-              <span className="verdict-sep">·</span>
-              <span className="run-card-muted">epitope {epitopeOf(run)}</span>
-            </>
           )}
         </div>
       </div>
