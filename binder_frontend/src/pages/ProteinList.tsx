@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { getProteins } from "../api/client";
 import type { Protein } from "../types";
 import ProteinSearchBar from "../components/ProteinSearchBar";
+import Pagination from "../components/Pagination";
 import usePageMeta, { count } from "../utils/pageMeta";
 
 type SortKey =
@@ -62,6 +63,7 @@ export default function ProteinList() {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSize>(20);
+  const tableRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     getProteins()
@@ -301,123 +303,101 @@ export default function ProteinList() {
             <>
               {(query || hasFilters) && (
                 <p className="search-result-count">
-                  {filtered.length} result{filtered.length !== 1 ? "s" : ""}
+                  {count(filtered.length)} result{filtered.length !== 1 ? "s" : ""}
                   {query ? <> for &ldquo;{query}&rdquo;</> : ""}
                 </p>
               )}
-              <table>
-                <thead>
-                  <tr>
-                    <th className="th-sortable" onClick={() => handleSort("uniprot")}>
-                      UniProt ID <SortIcon active={sortKey === "uniprot"} dir={sortDir} />
-                    </th>
-                    <th className="th-sortable" onClick={() => handleSort("gene")}>
-                      Gene <SortIcon active={sortKey === "gene"} dir={sortDir} />
-                    </th>
-                    <th className="th-sortable" onClick={() => handleSort("name")}>
-                      Protein Name <SortIcon active={sortKey === "name"} dir={sortDir} />
-                    </th>
-                    {organisms.length > 1 && (
-                      <th className="th-sortable" onClick={() => handleSort("organism")}>
-                        Organism <SortIcon active={sortKey === "organism"} dir={sortDir} />
+              <div className="binder-table-wrap" ref={tableRef}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th className="th-sortable" onClick={() => handleSort("uniprot")}>
+                        UniProt ID <SortIcon active={sortKey === "uniprot"} dir={sortDir} />
                       </th>
-                    )}
-                    <th className="th-sortable" onClick={() => handleSort("length")}>
-                      Length (aa) <SortIcon active={sortKey === "length"} dir={sortDir} />
-                    </th>
-                    <th className="th-sortable th-num" onClick={() => handleSort("runs")}
-                        title="Design runs against this target">
-                      Runs <SortIcon active={sortKey === "runs"} dir={sortDir} />
-                    </th>
-                    <th className="th-sortable th-num" onClick={() => handleSort("designs")}
-                        title="Designs produced across every run">
-                      Designs <SortIcon active={sortKey === "designs"} dir={sortDir} />
-                    </th>
-                    <th className="th-sortable th-num" onClick={() => handleSort("placement")}
-                        title="Designs that refolded onto the epitope, pooled across runs">
-                      Placed <SortIcon active={sortKey === "placement"} dir={sortDir} />
-                    </th>
-                    <th className="th-sortable th-num" onClick={() => handleSort("best_placement")}
-                        title="Closest placement achieved on this target; lower is better">
-                      Best RMSD <SortIcon active={sortKey === "best_placement"} dir={sortDir} />
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visible.map((p) => (
-                    <tr key={p.id}>
-                      <td><Link to={`/proteins/${p.id}`}>{p.uniprot_id ?? "—"}</Link></td>
-                      <td>{p.gene_name ?? "—"}</td>
-                      <td>{p.protein_name ?? "—"}</td>
-                      {organisms.length > 1 && <td>{p.organism ?? "—"}</td>}
-                      <td>{p.length ?? "—"}</td>
-                      <td className="td-num">
-                        {p.run_count > 0
-                          ? <Link to={`/runs?q=${encodeURIComponent(p.uniprot_id ?? "")}`}>
-                              {p.run_count}
-                            </Link>
-                          : "—"}
-                      </td>
-                      <td className="td-num">
-                        {p.designs > 0 ? p.designs.toLocaleString() : "—"}
-                      </td>
-                      <td className="td-num">
-                        {p.designs > 0 ? (
-                          <>
-                            <span className={toneFor(p.placement_rate)}>
-                              {pct(p.placement_rate)}
-                            </span>
-                            <span className="runs-sub">
-                              {p.placement_hits.toLocaleString()}
-                            </span>
-                          </>
-                        ) : "—"}
-                      </td>
-                      <td className="td-num">
-                        {p.best_placement != null
-                          ? p.best_placement.toFixed(2)
-                          : "—"}
-                      </td>
+                      <th className="th-sortable" onClick={() => handleSort("gene")}>
+                        Gene <SortIcon active={sortKey === "gene"} dir={sortDir} />
+                      </th>
+                      <th className="th-sortable" onClick={() => handleSort("name")}>
+                        Protein Name <SortIcon active={sortKey === "name"} dir={sortDir} />
+                      </th>
+                      {organisms.length > 1 && (
+                        <th className="th-sortable" onClick={() => handleSort("organism")}>
+                          Organism <SortIcon active={sortKey === "organism"} dir={sortDir} />
+                        </th>
+                      )}
+                      <th className="th-sortable" onClick={() => handleSort("length")}>
+                        Length (aa) <SortIcon active={sortKey === "length"} dir={sortDir} />
+                      </th>
+                      <th className="th-sortable th-num" onClick={() => handleSort("runs")}
+                          title="Design runs against this target">
+                        Runs <SortIcon active={sortKey === "runs"} dir={sortDir} />
+                      </th>
+                      <th className="th-sortable th-num" onClick={() => handleSort("designs")}
+                          title="Designs produced across every run">
+                        Designs <SortIcon active={sortKey === "designs"} dir={sortDir} />
+                      </th>
+                      <th className="th-sortable th-num" onClick={() => handleSort("placement")}
+                          title="Designs that refolded onto the epitope, pooled across runs">
+                        Placed <SortIcon active={sortKey === "placement"} dir={sortDir} />
+                      </th>
+                      <th className="th-sortable th-num" onClick={() => handleSort("best_placement")}
+                          title="Closest placement achieved on this target; lower is better">
+                        Best RMSD <SortIcon active={sortKey === "best_placement"} dir={sortDir} />
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              <div className="binder-pagination">
-                <div className="binder-page-size-group">
-                  <span className="binder-page-size-label">Show:</span>
-                  {PAGE_SIZES.map((s) => (
-                    <button
-                      key={s}
-                      className={`binder-page-size-btn${pageSize === s ? " active" : ""}`}
-                      onClick={() => { setPageSize(s); setPage(1); }}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-                {totalPages > 1 && (
-                  <div className="binder-page-nav">
-                    <button
-                      className="binder-page-btn"
-                      onClick={() => setPage((p) => p - 1)}
-                      disabled={safePage === 1}
-                    >
-                      ← Prev
-                    </button>
-                    <span className="binder-page-info">
-                      Page {safePage} of {totalPages}
-                    </span>
-                    <button
-                      className="binder-page-btn"
-                      onClick={() => setPage((p) => p + 1)}
-                      disabled={safePage === totalPages}
-                    >
-                      Next →
-                    </button>
-                  </div>
-                )}
+                  </thead>
+                  <tbody>
+                    {visible.map((p) => (
+                      <tr key={p.id}>
+                        <td><Link to={`/proteins/${p.id}`}>{p.uniprot_id ?? "—"}</Link></td>
+                        <td>{p.gene_name ?? "—"}</td>
+                        <td>{p.protein_name ?? "—"}</td>
+                        {organisms.length > 1 && <td>{p.organism ?? "—"}</td>}
+                        <td>{p.length ?? "—"}</td>
+                        <td className="td-num">
+                          {p.run_count > 0
+                            ? <Link to={`/runs?q=${encodeURIComponent(p.uniprot_id ?? "")}`}>
+                                {p.run_count}
+                              </Link>
+                            : "—"}
+                        </td>
+                        <td className="td-num">
+                          {p.designs > 0 ? p.designs.toLocaleString() : "—"}
+                        </td>
+                        <td className="td-num">
+                          {p.designs > 0 ? (
+                            <>
+                              <span className={toneFor(p.placement_rate)}>
+                                {pct(p.placement_rate)}
+                              </span>
+                              <span className="runs-sub">
+                                {p.placement_hits.toLocaleString()}
+                              </span>
+                            </>
+                          ) : "—"}
+                        </td>
+                        <td className="td-num">
+                          {p.best_placement != null
+                            ? p.best_placement.toFixed(2)
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
+
+              <Pagination
+                page={safePage}
+                totalPages={totalPages}
+                onPage={setPage}
+                pageSize={pageSize}
+                pageSizes={PAGE_SIZES}
+                onPageSize={(s) => { setPageSize(s as PageSize); setPage(1); }}
+                total={filtered.length}
+                noun="targets"
+                anchorRef={tableRef}
+              />
             </>
           )}
         </div>

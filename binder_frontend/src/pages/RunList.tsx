@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { getRuns } from "../api/client";
 import ExportMenu from "../components/ExportMenu";
+import Pagination from "../components/Pagination";
 import usePageMeta, { count as fmtCount } from "../utils/pageMeta";
 import type { RunIndex, RunListRow } from "../types";
 
@@ -176,6 +177,7 @@ export default function RunList() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSize>(25);
+  const tableRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -377,7 +379,7 @@ export default function RunList() {
         <p className="status">No runs match this filter.</p>
       ) : (
         <>
-          <div className="binder-table-wrap">
+          <div className="binder-table-wrap" ref={tableRef}>
             <table className="runs-table">
               <thead>
                 <tr>
@@ -471,41 +473,17 @@ export default function RunList() {
             </table>
           </div>
 
-          <div className="binder-pagination">
-            <div className="binder-page-size-group">
-              <span className="binder-page-size-label">Show:</span>
-              {PAGE_SIZES.map((s) => (
-                <button
-                  key={s}
-                  className={`binder-page-size-btn${pageSize === s ? " active" : ""}`}
-                  onClick={() => { setPageSize(s); setPage(1); }}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-            {totalPages > 1 && (
-              <div className="binder-page-nav">
-                <button
-                  className="binder-page-btn"
-                  onClick={() => setPage((p) => p - 1)}
-                  disabled={safePage === 1}
-                >
-                  ← Prev
-                </button>
-                <span className="binder-page-info">
-                  Page {safePage} of {totalPages}
-                </span>
-                <button
-                  className="binder-page-btn"
-                  onClick={() => setPage((p) => p + 1)}
-                  disabled={safePage === totalPages}
-                >
-                  Next →
-                </button>
-              </div>
-            )}
-          </div>
+          <Pagination
+            page={safePage}
+            totalPages={totalPages}
+            onPage={setPage}
+            pageSize={pageSize}
+            pageSizes={PAGE_SIZES}
+            onPageSize={(s) => { setPageSize(s as PageSize); setPage(1); }}
+            total={filtered.length}
+            noun="runs"
+            anchorRef={tableRef}
+          />
         </>
       )}
     </div>

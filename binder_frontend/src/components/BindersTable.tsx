@@ -3,6 +3,7 @@ import { getRunBinders } from "../api/client";
 import type { Binder, Histogram } from "../types";
 import CifViewer from "./CifViewer";
 import ExportMenu from "./ExportMenu";
+import Pagination from "./Pagination";
 import { MetricSparkline } from "./RunCharts";
 import { LinkedSequenceBlock, statusClass } from "./SequenceBlock";
 import {
@@ -462,6 +463,7 @@ export default function BindersTable({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSize>(20);
+  const tableRef = useRef<HTMLDivElement | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
     () => new Set(DEFAULT_VISIBLE_BINDER_COLUMNS)
   );
@@ -582,7 +584,7 @@ export default function BindersTable({
           </button>
         ))}
         <span className="binder-filter-count">
-          {total} binder{total !== 1 ? "s" : ""}
+          {total.toLocaleString()} binder{total !== 1 ? "s" : ""}
         </span>
         {/* The export carries the status filter and the sort currently applied,
             because the server builds both from the same queryset the table was
@@ -667,7 +669,7 @@ export default function BindersTable({
         </div>
       </div>
 
-      <div className={`binder-table-wrap${loading ? " is-loading" : ""}`}>
+      <div className={`binder-table-wrap${loading ? " is-loading" : ""}`} ref={tableRef}>
         <table>
         <thead>
           <tr>
@@ -713,41 +715,17 @@ export default function BindersTable({
         </table>
       </div>
 
-      <div className="binder-pagination">
-        <div className="binder-page-size-group">
-          <span className="binder-page-size-label">Show:</span>
-          {PAGE_SIZES.map((s) => (
-            <button
-              key={s}
-              className={`binder-page-size-btn${pageSize === s ? " active" : ""}`}
-              onClick={() => { setPageSize(s); setPage(1); }}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-        {totalPages > 1 && (
-          <div className="binder-page-nav">
-            <button
-              className="binder-page-btn"
-              onClick={() => setPage(safePage - 1)}
-              disabled={safePage === 1}
-            >
-              ← Prev
-            </button>
-            <span className="binder-page-info">
-              Page {safePage} of {totalPages}
-            </span>
-            <button
-              className="binder-page-btn"
-              onClick={() => setPage(safePage + 1)}
-              disabled={safePage === totalPages}
-            >
-              Next →
-            </button>
-          </div>
-        )}
-      </div>
+      <Pagination
+        page={safePage}
+        totalPages={totalPages}
+        onPage={setPage}
+        pageSize={pageSize}
+        pageSizes={PAGE_SIZES}
+        onPageSize={(s) => { setPageSize(s as PageSize); setPage(1); }}
+        total={total}
+        noun="designs"
+        anchorRef={tableRef}
+      />
 
       {selectedBinder && (
         <BinderModal
