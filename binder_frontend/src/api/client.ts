@@ -1,5 +1,5 @@
 import type {
-  BinderPage, Protein, ProteinDetail, RunIndex, RunSummary, Stats,
+  Binder, BinderPage, Protein, ProteinDetail, RunIndex, RunSummary, Stats,
 } from "../types";
 
 async function apiFetch<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -52,6 +52,9 @@ export const getRunBinders = (
   });
   return apiFetch<BinderPage>(`/api/runs/${runId}/binders?${params}`, signal);
 };
+
+export const getRunBinder = (runId: number, binderId: number, signal?: AbortSignal): Promise<Binder> =>
+  apiFetch<Binder>(`/api/runs/${runId}/binders/${binderId}`, signal);
 
 /** Server-side run aggregate: counts, distributions and the enrichment curve.
  *  Thresholds are conventions rather than constants, so the endpoint takes

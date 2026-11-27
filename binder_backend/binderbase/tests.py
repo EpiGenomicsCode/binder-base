@@ -418,6 +418,25 @@ class PromotedColumnTestCase(_RunFixtureMixin, TestCase):
 from django.test import Client                                  # noqa: E402
 
 
+class RunBinderTestCase(TestCase):
+    def test_detail_is_scoped_to_the_binders_run(self):
+        protein = Protein.objects.create(uniprot_id="P12345", sequence="MKV")
+        run = BinderRun.objects.create(protein=protein)
+        other_run = BinderRun.objects.create(protein=protein)
+        binder = Binder.objects.create(run=run, binder_sequence="AG", final_rank=42,
+                                       cif_path="runs/design.bcif")
+
+        response = self.client.get(f"/api/runs/{run.id}/binders/{binder.id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["id"], binder.id)
+        self.assertEqual(response.json()["final_rank"], 42)
+        self.assertEqual(response.json()["cif_path"], "runs/design.bcif")
+        self.assertEqual(
+            self.client.get(f"/api/runs/{other_run.id}/binders/{binder.id}").status_code,
+            404,
+        )
+
+
 class RunSummaryTestCase(TestCase):
     """Built on synthetic binders so the arithmetic is checkable by hand.
 
