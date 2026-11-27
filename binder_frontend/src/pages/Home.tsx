@@ -4,6 +4,7 @@ import HomeComplexGallery from "../components/HomeComplexGallery";
 import ProteinSearchBar from "../components/ProteinSearchBar";
 import { getStats } from "../api/client";
 import usePageMeta, { count, DEFAULT_DESCRIPTION } from "../utils/pageMeta";
+import { STAT_FIELDS } from "../utils/stats";
 import type { Stats } from "../types";
 
 const EXAMPLES = ["Tal1", "Lmo2", "Homo sapiens", "Notch1"];
@@ -11,10 +12,15 @@ const EXAMPLES = ["Tal1", "Lmo2", "Homo sapiens", "Notch1"];
 export default function Home() {
   const [query, setQuery] = useState("");
   const [stats, setStats] = useState<Stats | null>(null);
+  // Swallowing the rejection left the four cards simply absent, which looks
+  // identical to a site that has no data yet. Say which of the two it is.
+  const [statsFailed, setStatsFailed] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
-    getStats().then(setStats).catch(() => {});
+    getStats()
+      .then(setStats)
+      .catch(() => setStatsFailed(true));
   }, []);
 
   // The landing page keeps the bare site name: "Binder Base · Binder Base"
@@ -22,8 +28,8 @@ export default function Home() {
   usePageMeta({
     title: null,
     description: stats
-      ? `${DEFAULT_DESCRIPTION} ${count(stats.binder_count)} binders across ` +
-        `${count(stats.run_count)} design runs against ${count(stats.protein_count)} proteins.`
+      ? `${DEFAULT_DESCRIPTION} ${count(stats.binder_count)} designs across ` +
+        `${count(stats.run_count)} runs against ${count(stats.protein_count)} targets.`
       : DEFAULT_DESCRIPTION,
   });
 
@@ -58,26 +64,21 @@ export default function Home() {
           Browse all targets →
         </button>
 
-        {stats && (
+        {stats ? (
           <div className="home-stats">
-            <div className="home-stat-card">
-              <span className="home-stat-value">{stats.protein_count}</span>
-              <span className="home-stat-label">Proteins</span>
-            </div>
-            <div className="home-stat-card">
-              <span className="home-stat-value">{stats.run_count}</span>
-              <span className="home-stat-label">Design Runs</span>
-            </div>
-            <div className="home-stat-card">
-              <span className="home-stat-value">{stats.binder_count}</span>
-              <span className="home-stat-label">Binders</span>
-            </div>
-            <div className="home-stat-card">
-              <span className="home-stat-value">{stats.success_count}</span>
-              <span className="home-stat-label">Successful</span>
-            </div>
+            {STAT_FIELDS.map(({ key, label }) => (
+              <div className="home-stat-card" key={key}>
+                <span className="home-stat-value">{count(stats[key])}</span>
+                <span className="home-stat-label">{label}</span>
+              </div>
+            ))}
           </div>
-        )}
+        ) : statsFailed ? (
+          <p className="stats-error">
+            Site statistics are unavailable right now. Browsing and search are
+            unaffected.
+          </p>
+        ) : null}
       </div>
     </div>
   );
