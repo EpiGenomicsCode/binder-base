@@ -2105,3 +2105,88 @@ class BackfillBcifVerifyTestCase(TestCase):
         before = (os.path.getmtime(path), os.path.getsize(path))
         self._verify()
         self.assertEqual(before, (os.path.getmtime(path), os.path.getsize(path)))
+
+
+class BackfillProteinAssetsTestCase(TestCase):
+    """The gaps left behind when an asset download fails during an import.
+
+    get_or_create_protein swallows a failed download on purpose, so the only
+    record of one is a null column. These cover the three states that produces
+    and the one a human would never look for: a column pointing at a file that
+    is no longer on disk.
+    """
+
+    def setUp(self):
+        self.media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media, ignore_errors=True)
+        self.protein = Protein.objects.create(
+            uniprot_id="O00115", gene_name="DNASE2", sequence="MKV",
+            pae_json_path="proteins/O00115/pae.json",
+        )
+
+    def _asset(self, name, body="stub"):
+        path = os.path.join(self.media, "proteins", "O00115", name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(body)
+        return path
+
+    def _run(self, **kwargs):
+        def fake_download(url, dest):
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with open(dest, "w") as fh:
+                fh.write("downloaded")
+
+        out = io.StringIO()
+        patches = [
+            mock.patch("binderbase.management.commands.backfill_protein_assets._fetch_alphafold",
+                       return_value=dict(FAKE_ALPHAFOLD)),
+            mock.patch("binderbase.management.commands.backfill_protein_assets._fetch_biological_function",
+                       return_value="Degrades DNA."),
+            mock.patch("binderbase.management.commands.backfill_protein_assets._download_file",
+                       side_effect=fake_download),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        with override_settings(MEDIA_ROOT=self.media):
+            call_command("backfill_protein_assets", stdout=out, delay=0, **kwargs)
+        self.protein.refresh_from_db()
+        return out.getvalue()
+
+    def test_fetches_only_what_is_missing(self):
+        self._asset("pae.json")
+        self._run()
+        self.assertEqual(self.protein.cif_path.name, "proteins/O00115/model.cif")
+        self.assertEqual(self.protein.biological_function, "Degrades DNA.")
+        # The PAE was already recorded and present, so it is left alone.
+        with open(os.path.join(self.media, "proteins", "O00115", "pae.json")) as fh:
+            self.assertEqual(fh.read(), "stub")
+
+    def test_dry_run_writes_nothing(self):
+        self._asset("pae.json")
+        output = self._run(dry_run=True)
+        self.assertIn("would fetch", output)
+        self.assertFalse(self.protein.cif_path)
+        self.assertIsNone(self.protein.biological_function)
+        self.assertFalse(os.path.exists(os.path.join(self.media, "proteins", "O00115", "model.cif")))
+
+    def test_a_column_pointing_at_a_missing_file_is_a_gap(self):
+        # pae_json_path is set but nothing is on disk: the page would render a
+        # viewer that 404s, which is worse than an absent panel.
+        output = self._run(what="pae")
+        self.assertIn("pae", output)
+        with open(os.path.join(self.media, "proteins", "O00115", "pae.json")) as fh:
+            self.assertEqual(fh.read(), "downloaded")
+
+    def test_a_file_already_on_disk_is_repointed_without_fetching(self):
+        self._asset("model.cif")
+        self._asset("pae.json")
+        with mock.patch(
+            "binderbase.management.commands.backfill_protein_assets._fetch_alphafold",
+            side_effect=AssertionError("must not hit the network"),
+        ):
+            with override_settings(MEDIA_ROOT=self.media):
+                call_command("backfill_protein_assets", what="cif", delay=0, stdout=io.StringIO())
+        self.protein.refresh_from_db()
+        self.assertEqual(self.protein.cif_path.name, "proteins/O00115/model.cif")
